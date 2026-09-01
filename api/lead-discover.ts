@@ -16,7 +16,7 @@ const SEARCH_DELAY_MS=1400;
 const MAX_QUERY_HISTORY=4000;
 const MAX_URL_HISTORY=4000;
 const CONTACT_HUB_HOSTS=['linktr.ee','beacons.ai','bio.site','taplink.cc','carrd.co','solo.to','msha.ke','lnk.bio','wa.me','api.whatsapp.com'];
-const sourcesByRound=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br','forum.hardmob.com.br','forum.adrenaline.com.br','groups.google.com','medium.com'];
+const PUBLIC_SOURCES: readonly string[] = Object.freeze(['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br','forum.hardmob.com.br','forum.adrenaline.com.br','groups.google.com','medium.com','brasil247.com','terra.com.br','uol.com.br']);
 
 function clean(s:string){return s.replace(/\s+/g,' ').trim();}
 function decode(s:string){return s.replace(/<!\[CDATA\[|\]\]>/g,'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
@@ -110,9 +110,9 @@ function searchQueries(product:string,city:string,round:number){
     const qual=qualifiers[(round+i*2)%qualifiers.length];
     qs.push(`"${cityQ}" ${x} "${base}" "${qual}"`);
   }
-  for(const site of sourcesByRound){
-    const p=pain[(round*5 + sourcesByRound.indexOf(site))%pain.length];
-    const fp=firstPerson[(round*7 + sourcesByRound.indexOf(site))%firstPerson.length];
+  for(const site of PUBLIC_SOURCES){
+    const p=pain[(round*5 + PUBLIC_SOURCES.indexOf(site))%pain.length];
+    const fp=firstPerson[(round*7 + PUBLIC_SOURCES.indexOf(site))%firstPerson.length];
     qs.push(`site:${site} "${base}" "${cityQ}" ${p} ${fp}`);
     qs.push(`site:${site} "${base}" "${cityQ}" "preciso" "ajuda"`);
     qs.push(`site:${site} "${base}" "${cityQ}" "meu" "minha" ${p}`);

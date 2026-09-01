@@ -14,3 +14,6 @@ Importante: a descoberta automática de contatos pessoais permanece limitada a i
 
 ## FREE/PUBLIC ONLY
 Esta versão segue somente fontes públicas e alternativas gratuitas. Não exige BigDataCorp, Infosimples, APIBrasil paga, Credify, Speedio, LeadJet ou outra fonte de dados paga. O Lead Generator não usa bases privadas nem tenta descobrir telefone pessoal oculto por cruzamento entre plataformas.
+
+## V17 runtime fix
+Replaced the fragile `sourcesByRound` reference with a frozen `PUBLIC_SOURCES` constant so the deployed function cannot fail with `sourcesByRound is not defined` during query generation.
