@@ -1,399 +1,48 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-  ArrowRight,
-  ExternalLink,
-  LayoutDashboard,
-  LogOut,
-  Plus,
-  RefreshCw,
-  ScanSearch,
-  Search,
-  Users,
-} from 'lucide-react';
+import { useEffect, useMemo, useState, type FormEvent, type Dispatch, type SetStateAction, type ChangeEvent } from 'react';
+import { Activity, ArrowRight, CheckCircle2, ExternalLink, LayoutDashboard, LogOut, Pencil, Plus, RefreshCw, ScanSearch, Search, Trash2, Users, X } from 'lucide-react';
 import type { Lead, LeadStatus } from './types';
 import { configured, supabase } from './supabase';
 
-const statuses: LeadStatus[] = [
-  'novo',
-  'contatado',
-  'qualificado',
-  'proposta',
-  'convertido',
-  'perdido',
-];
+const statuses: LeadStatus[] = ['novo', 'contatado', 'qualificado', 'proposta', 'convertido', 'perdido'];
+const statusLabel: Record<LeadStatus, string> = { novo: 'Novo', contatado: 'Contatado', qualificado: 'Qualificado', proposta: 'Proposta', convertido: 'Convertido', perdido: 'Perdido' };
 
-function calculateScore(lead: Partial<Lead>) {
-  let value = 0;
-  if (lead.phone) value += 25;
-  if (lead.email) value += 20;
-  if (lead.company) value += 20;
-  if (lead.consent_at) value += 20;
-  if (lead.source === 'site_publico') value += 10;
-  if (lead.interest) value += 5;
-  return Math.min(100, value);
+type LeadForm = { name:string; company:string; email:string; phone:string; source:string; source_url:string; source_detail:string; status:LeadStatus; interest:string; notes:string; consent_at:string; consent_source:string };
+const emptyForm: LeadForm = { name:'', company:'', email:'', phone:'', source:'manual', source_url:'', source_detail:'', status:'novo', interest:'', notes:'', consent_at:'', consent_source:'' };
+
+function scoreLead(data: Partial<Lead>) { let n=0; if(data.phone)n+=25; if(data.email)n+=20; if(data.company)n+=20; if(data.consent_at)n+=20; if(data.source==='site_publico')n+=10; if(data.interest)n+=5; return Math.min(100,n); }
+function normalize(value:string){return value.trim().toLowerCase();}
+function dedupeKey(data:Partial<Lead>){const email=normalize(data.email||''); const phone=(data.phone||'').replace(/\D/g,''); const company=normalize(data.company||''); const name=normalize(data.name||''); return email?`email:${email}`:phone?`phone:${phone}`:`name:${name}|company:${company}`;}
+function formFromLead(l:Lead):LeadForm{return {name:l.name,company:l.company||'',email:l.email||'',phone:l.phone||'',source:l.source,source_url:l.source_url||'',source_detail:l.source_detail||'',status:l.status,interest:l.interest||'',notes:l.notes||'',consent_at:l.consent_at?l.consent_at.slice(0,16):'',consent_source:l.consent_source||''};}
+
+export default function App(){
+ const [session,setSession]=useState<any>(null); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [mode,setMode]=useState<'login'|'signup'>('login');
+ const [view,setView]=useState<'dashboard'|'crm'|'scanner'>('dashboard'); const [leads,setLeads]=useState<Lead[]>([]); const [q,setQ]=useState(''); const [status,setStatus]=useState(''); const [busy,setBusy]=useState(false); const [msg,setMsg]=useState('');
+ const [modal,setModal]=useState<'new'|'edit'|null>(null); const [editing,setEditing]=useState<Lead|null>(null); const [form,setForm]=useState<LeadForm>(emptyForm); const [scanUrl,setScanUrl]=useState(''); const [scan,setScan]=useState<any>(null); const [activityLead,setActivityLead]=useState<Lead|null>(null); const [activity,setActivity]=useState('');
+
+ useEffect(()=>{if(!supabase)return; supabase.auth.getSession().then(({data})=>setSession(data.session)); const {data}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return()=>data.subscription.unsubscribe();},[]);
+ async function load(){if(!supabase||!session)return; setBusy(true); let query=supabase.from('leads').select('*').order('created_at',{ascending:false}); if(status)query=query.eq('status',status); if(q.trim()){const term=q.trim().replace(/[,%()]/g,' '); query=query.or(`name.ilike.%${term}%,email.ilike.%${term}%,company.ilike.%${term}%,phone.ilike.%${term}%`);} const {data,error}=await query; setBusy(false); if(error)setMsg(error.message); else setLeads((data||[]) as Lead[]);}
+ useEffect(()=>{void load();},[session,status,q]);
+ async function authenticate(e:FormEvent<HTMLFormElement>){e.preventDefault();if(!supabase)return;setMsg('');const r=mode==='login'?await supabase.auth.signInWithPassword({email,password}):await supabase.auth.signUp({email,password});if(r.error)setMsg(r.error.message);else setMsg(mode==='signup'?'Conta criada. Verifique o e-mail se a confirmação estiver ativada.':'');}
+ function openNew(prefill?:Partial<Lead>){setEditing(null);setForm({...emptyForm,...prefill,status:prefill?.status||'novo'});setModal('new');}
+ function openEdit(l:Lead){setEditing(l);setForm(formFromLead(l));setModal('edit');}
+ async function saveLead(e:FormEvent){e.preventDefault();if(!supabase||!session)return;setBusy(true);setMsg('');const payload={name:form.name.trim(),dedupe_key:dedupeKey(form),company:form.company.trim()||null,email:form.email.trim()||null,phone:form.phone.trim()||null,source:form.source.trim()||'manual',source_url:form.source_url.trim()||null,source_detail:form.source_detail.trim()||null,status:form.status,score:scoreLead(form),interest:form.interest.trim()||null,notes:form.notes.trim()||null,consent_at:form.consent_at?new Date(form.consent_at).toISOString():null,consent_source:form.consent_source.trim()||null}; const r=editing?await supabase.from('leads').update(payload).eq('id',editing.id).eq('owner_id',session.user.id):await supabase.from('leads').insert({...payload,owner_id:session.user.id});setBusy(false);if(r.error)setMsg(r.error.message);else{setModal(null);setMsg(editing?'Lead atualizado.':'Lead criado no CRM.');await load();}}
+ async function removeLead(l:Lead){if(!supabase||!confirm(`Excluir ${l.name}? Esta ação não pode ser desfeita.`))return;const {error}=await supabase.from('leads').delete().eq('id',l.id);if(error)setMsg(error.message);else{setMsg('Lead excluído.');await load();}}
+ async function addActivity(){if(!supabase||!activityLead||!activity.trim())return;const {error}=await supabase.from('activities').insert({owner_id:session.user.id,lead_id:activityLead.id,type:'nota',body:activity.trim()});if(error)setMsg(error.message);else{setActivity('');setActivityLead(null);setMsg('Atividade registrada.');}}
+ async function scanPage(){setBusy(true);setScan(null);setMsg('');try{const r=await fetch('/api/public-scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:scanUrl})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Falha no scanner');setScan(data);}catch(e){setMsg(e instanceof Error?e.message:'Falha no scanner');}finally{setBusy(false);}}
+ async function importCsv(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file||!supabase||!session)return;const text=await file.text();const lines=text.split(/\r?\n/).filter(Boolean);if(lines.length<2){setMsg('CSV sem registros.');return;}const parse=(line:string)=>{const out:string[]=[];let cur='',quote=false;for(const c of line){if(c==='"')quote=!quote;else if(c===','&&!quote){out.push(cur.trim());cur='';}else cur+=c;}out.push(cur.trim());return out.map(v=>v.replace(/^"|"$/g,''));};const head=parse(lines[0]).map(normalize);const rows=lines.slice(1).map(parse).map(vals=>Object.fromEntries(head.map((h,i)=>[h,vals[i]||''])));const payload=rows.map(r=>({owner_id:session.user.id,name:r.nome||r.name||'Lead importado',company:r.empresa||r.company||null,email:r.email||null,phone:r.telefone||r.phone||null,source:r.origem||r.source||'csv',dedupe_key:dedupeKey(r as Partial<Lead>),source_url:r.url||r.source_url||null,source_detail:'Importado por CSV',status:'novo',score:scoreLead(r)}));setBusy(true);const {error}=await supabase.from('leads').insert(payload);setBusy(false);if(error)setMsg(error.message);else{setMsg(`${payload.length} lead(s) importado(s).`);await load();}e.target.value='';}
+ const total=leads.length, qualified=leads.filter(l=>l.status==='qualificado'||l.status==='proposta').length, converted=leads.filter(l=>l.status==='convertido').length, open=leads.filter(l=>!['convertido','perdido'].includes(l.status)).length;
+ if(!configured)return <div className="center"><div className="card"><h1>Leadcheck</h1><p>Configure <code>SUPABASE_URL</code> e <code>SUPABASE_ANON_KEY</code> (ou as versões <code>VITE_</code>) na Vercel e faça um novo deploy.</p></div></div>;
+ if(!session)return <div className="center"><form className="card auth" onSubmit={authenticate}><div className="logo">LC</div><h1>Leadcheck</h1><p>CRM + geração de leads.</p><input placeholder="E-mail" type="email" value={email} onChange={e=>setEmail(e.target.value)} required/><input placeholder="Senha" type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={6}/><button type="submit">{mode==='login'?'Entrar':'Criar conta'}</button>{msg&&<small>{msg}</small>}<button type="button" className="linkButton" onClick={()=>setMode(mode==='login'?'signup':'login')}>{mode==='login'?'Criar uma conta':'Já tenho conta'}</button></form></div>;
+ return <div className="app"><aside><div className="brand"><b>LC</b><span>Leadcheck</span></div><button className={view==='dashboard'?'nav active':'nav'} onClick={()=>setView('dashboard')}><LayoutDashboard/>Dashboard</button><button className={view==='crm'?'nav active':'nav'} onClick={()=>setView('crm')}><Users/>CRM</button><button className={view==='scanner'?'nav active':'nav'} onClick={()=>setView('scanner')}><ScanSearch/>Lead Generator</button><div className="sideBottom"><button className="nav" onClick={()=>supabase?.auth.signOut()}><LogOut/>Sair</button></div></aside>
+ <main><header><div><h2>{view==='dashboard'?'Visão geral':view==='crm'?'CRM de leads':'Lead Generator'}</h2><span>{session.user.email}</span></div><button className="icon" onClick={()=>void load()} title="Atualizar"><RefreshCw size={18}/></button></header>{msg&&<div className="notice">{msg}</div>}
+ {view==='dashboard'&&<><section className="grid"><Metric label="Total de leads" value={total}/><Metric label="Em aberto" value={open}/><Metric label="Qualificados" value={qualified}/><Metric label="Convertidos" value={converted}/></section><section className="card"><div className="sectionTitle"><div><h3>Pipeline</h3><span className="muted">Visão operacional do CRM</span></div><button onClick={()=>openNew()}><Plus size={16}/> Novo lead</button></div><div className="pipeline">{statuses.map(s=><button key={s} onClick={()=>{setStatus(s);setView('crm')}}><b>{leads.filter(l=>l.status===s).length}</b><span>{statusLabel[s]}</span></button>)}</div></section><section className="card"><div className="sectionTitle"><h3>Leads recentes</h3><button onClick={()=>setView('crm')}>Abrir CRM <ArrowRight size={16}/></button></div><LeadTable leads={leads.slice(0,8)} update={async(id,p)=>{await updateLead(id,p)}} edit={openEdit} remove={removeLead} activity={setActivityLead}/></section></>}
+ {view==='crm'&&<section className="card"><div className="toolbar"><div className="search"><Search size={16}/><input placeholder="Buscar nome, empresa, e-mail ou telefone" value={q} onChange={e=>setQ(e.target.value)}/></div><select value={status} onChange={e=>setStatus(e.target.value)}><option value="">Todos os status</option>{statuses.map(s=><option key={s} value={s}>{statusLabel[s]}</option>)}</select><button onClick={()=>openNew()}><Plus size={16}/> Novo lead</button><label className="buttonLike">Importar CSV<input type="file" accept=".csv,text/csv" hidden onChange={importCsv}/></label></div><LeadTable leads={leads} update={updateLead} edit={openEdit} remove={removeLead} activity={setActivityLead}/>{busy&&<small className="muted">Atualizando…</small>}</section>}
+ {view==='scanner'&&<><section className="card"><h3>Scanner de páginas públicas</h3><p className="muted">Localiza contatos comerciais publicados pela própria empresa e preserva a origem do dado.</p><div className="scanrow"><input placeholder="https://empresa.com.br/contato" value={scanUrl} onChange={e=>setScanUrl(e.target.value)}/><button onClick={()=>void scanPage()} disabled={busy||!scanUrl}><ScanSearch size={16}/>{busy?'Consultando…':'Escanear'}</button></div></section>{scan&&<section className="card"><div className="scanResult"><div><b>{scan.title||'Página pública'}</b><span>{scan.url}</span></div><div><h4>E-mails</h4><p>{scan.emails?.join(', ')||'Nenhum encontrado'}</p><h4>Telefones</h4><p>{scan.phones?.join(', ')||'Nenhum encontrado'}</p></div><button onClick={()=>openNew({name:scan.title||'Empresa encontrada',company:scan.title||'',email:scan.emails?.[0]||'',phone:scan.phones?.[0]||'',source:'site_publico',source_url:scan.url,source_detail:'Contato publicado em página pública'})}><Plus size={16}/> Salvar e revisar</button></div></section>}<section className="card"><h3>Importação gratuita</h3><p className="muted">Você também pode importar CSV diretamente pelo CRM. WhatsApp, APIs pagas e CNPJ não são obrigatórios.</p></section></>}
+ </main>{modal&&<LeadModal form={form} setForm={setForm} onClose={()=>setModal(null)} onSave={saveLead} busy={busy} editing={!!editing}/>} {activityLead&&<ActivityModal lead={activityLead} value={activity} setValue={setActivity} onClose={()=>setActivityLead(null)} onSave={addActivity}/>}</div>;
 }
 
-export default function App() {
-  const [session, setSession] = useState<any>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const [view, setView] = useState<'dashboard' | 'crm' | 'scanner'>('dashboard');
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [q, setQ] = useState('');
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [scanUrl, setScanUrl] = useState('');
-  const [scan, setScan] = useState<any>(null);
-  const [msg, setMsg] = useState('');
-
-  useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-    });
-    return () => data.subscription.unsubscribe();
-  }, []);
-
-  async function load() {
-    if (!supabase || !session) return;
-    setBusy(true);
-    let query = supabase
-      .from('leads')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (status) query = query.eq('status', status as LeadStatus);
-    if (q.trim()) {
-      const term = q.trim().replace(/[%(),]/g, ' ');
-      query = query.or(
-        `name.ilike.%${term}%,email.ilike.%${term}%,company.ilike.%${term}%,phone.ilike.%${term}%`,
-      );
-    }
-
-    const { data, error } = await query;
-    setBusy(false);
-    if (error) setMsg(error.message);
-    else setLeads((data || []) as Lead[]);
-  }
-
-  useEffect(() => {
-    void load();
-  }, [session, status, q]);
-
-  async function authenticate(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase) return;
-    setMsg('');
-    const result =
-      mode === 'login'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
-
-    if (result.error) setMsg(result.error.message);
-    else if (mode === 'signup') {
-      setMsg('Conta criada. Verifique o e-mail se a confirmação estiver ativada.');
-    }
-  }
-
-  async function addLead(data: Partial<Lead>) {
-    if (!supabase || !session) return;
-    const payload = {
-      name: data.name || 'Novo lead',
-      phone: data.phone || null,
-      email: data.email || null,
-      company: data.company || null,
-      source: data.source || 'manual',
-      source_url: data.source_url || null,
-      source_detail: data.source_detail || null,
-      status: data.status || 'novo',
-      score: calculateScore(data),
-      interest: data.interest || null,
-      notes: data.notes || null,
-      consent_at: data.consent_at || null,
-      consent_source: data.consent_source || null,
-      owner_id: session.user.id,
-    };
-
-    const { error } = await supabase.from('leads').insert(payload);
-    if (error) setMsg(error.message);
-    else {
-      setMsg('Lead salvo no CRM.');
-      await load();
-    }
-  }
-
-  async function updateLead(id: string, patch: Partial<Lead>) {
-    if (!supabase) return;
-    const { error } = await supabase.from('leads').update(patch).eq('id', id);
-    if (error) setMsg(error.message);
-    else await load();
-  }
-
-  async function scanPage() {
-    setBusy(true);
-    setScan(null);
-    setMsg('');
-    try {
-      const response = await fetch('/api/public-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: scanUrl }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Falha no scanner');
-      setScan(result);
-    } catch (error) {
-      setMsg(error instanceof Error ? error.message : 'Falha no scanner');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const total = leads.length;
-  const qualified = leads.filter(
-    (lead) => lead.status === 'qualificado' || lead.status === 'proposta',
-  ).length;
-  const converted = leads.filter((lead) => lead.status === 'convertido').length;
-  const conversionRate = total ? Math.round((converted / total) * 100) : 0;
-
-  if (!configured) {
-    return (
-      <div className="center">
-        <div className="card">
-          <h1>Leadcheck</h1>
-          <p>
-            Configure <code>VITE_SUPABASE_URL</code> e{' '}
-            <code>VITE_SUPABASE_ANON_KEY</code> na Vercel.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <div className="center">
-        <form className="card auth" onSubmit={authenticate}>
-          <div className="logo">LC</div>
-          <h1>Leadcheck</h1>
-          <p>CRM + geração de leads.</p>
-          <input
-            placeholder="E-mail"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <input
-            placeholder="Senha"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            minLength={6}
-          />
-          <button type="submit">{mode === 'login' ? 'Entrar' : 'Criar conta'}</button>
-          {msg && <small>{msg}</small>}
-          <button
-            type="button"
-            className="linkButton"
-            onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-          >
-            {mode === 'login' ? 'Criar uma conta' : 'Já tenho conta'}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  return (
-    <div className="app">
-      <aside>
-        <div className="brand">
-          <b>LC</b>
-          <span>Leadcheck</span>
-        </div>
-        <button className={view === 'dashboard' ? 'nav active' : 'nav'} onClick={() => setView('dashboard')}>
-          <LayoutDashboard /> Dashboard
-        </button>
-        <button className={view === 'crm' ? 'nav active' : 'nav'} onClick={() => setView('crm')}>
-          <Users /> CRM
-        </button>
-        <button className={view === 'scanner' ? 'nav active' : 'nav'} onClick={() => setView('scanner')}>
-          <ScanSearch /> Lead Generator
-        </button>
-        <div className="sideBottom">
-          <button className="nav" onClick={() => supabase?.auth.signOut()}>
-            <LogOut /> Sair
-          </button>
-        </div>
-      </aside>
-
-      <main>
-        <header>
-          <div>
-            <h2>
-              {view === 'dashboard' ? 'Visão geral' : view === 'crm' ? 'CRM de leads' : 'Lead Generator'}
-            </h2>
-            <span>Base própria • Supabase • Vercel</span>
-          </div>
-          <button className="icon" onClick={() => void load()} title="Atualizar">
-            <RefreshCw size={18} />
-          </button>
-        </header>
-
-        {msg && <div className="notice">{msg}</div>}
-
-        {view === 'dashboard' && (
-          <>
-            <section className="grid">
-              <div className="metric"><span>Leads</span><strong>{total}</strong></div>
-              <div className="metric"><span>Qualificados</span><strong>{qualified}</strong></div>
-              <div className="metric"><span>Convertidos</span><strong>{converted}</strong></div>
-              <div className="metric"><span>Taxa conversão</span><strong>{conversionRate}%</strong></div>
-            </section>
-            <section className="card">
-              <div className="sectionTitle">
-                <h3>Últimos leads</h3>
-                <button onClick={() => setView('crm')}>Abrir CRM <ArrowRight size={16} /></button>
-              </div>
-              <LeadTable leads={leads.slice(0, 8)} update={updateLead} />
-            </section>
-          </>
-        )}
-
-        {view === 'crm' && (
-          <section className="card">
-            <div className="toolbar">
-              <div className="search">
-                <Search size={16} />
-                <input
-                  placeholder="Buscar nome, empresa, e-mail ou telefone"
-                  value={q}
-                  onChange={(event) => setQ(event.target.value)}
-                />
-              </div>
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="">Todos os status</option>
-                {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <button onClick={() => void addLead({ name: 'Novo lead', source: 'manual' })}>
-                <Plus size={16} /> Novo lead
-              </button>
-            </div>
-            <LeadTable leads={leads} update={updateLead} />
-            {busy && <small className="muted">Atualizando…</small>}
-          </section>
-        )}
-
-        {view === 'scanner' && (
-          <>
-            <section className="card">
-              <h3>Scanner de páginas públicas</h3>
-              <p className="muted">
-                Encontre contatos comerciais publicados pela própria empresa. Registre a origem antes de usar o lead.
-              </p>
-              <div className="scanrow">
-                <input
-                  placeholder="https://empresa.com.br/contato"
-                  value={scanUrl}
-                  onChange={(event) => setScanUrl(event.target.value)}
-                />
-                <button onClick={() => void scanPage()} disabled={busy || !scanUrl}>
-                  <ScanSearch size={16} /> {busy ? 'Consultando…' : 'Escanear'}
-                </button>
-              </div>
-            </section>
-
-            {scan && (
-              <section className="card">
-                <div className="scanResult">
-                  <div>
-                    <b>{scan.title || 'Página pública'}</b>
-                    <span>{scan.url}</span>
-                  </div>
-                  <div>
-                    <h4>E-mails</h4>
-                    <p>{scan.emails?.join(', ') || 'Nenhum encontrado'}</p>
-                    <h4>Telefones</h4>
-                    <p>{scan.phones?.join(', ') || 'Nenhum encontrado'}</p>
-                  </div>
-                  <button
-                    onClick={() =>
-                      void addLead({
-                        name: scan.title || 'Empresa encontrada',
-                        company: scan.title || null,
-                        email: scan.emails?.[0] || null,
-                        phone: scan.phones?.[0] || null,
-                        source: 'site_publico',
-                        source_url: scan.url,
-                        source_detail: 'Contato publicado em página pública',
-                      })
-                    }
-                  >
-                    <Plus size={16} /> Salvar no CRM
-                  </button>
-                </div>
-              </section>
-            )}
-
-            <section className="card">
-              <h3>Importação gratuita</h3>
-              <p className="muted">
-                A versão inicial não depende de WhatsApp, APIs pagas ou CNPJ. O CRM aceita leads manuais e o scanner trabalha com páginas públicas.
-              </p>
-            </section>
-          </>
-        )}
-      </main>
-    </div>
-  );
-}
-
-function LeadTable({
-  leads,
-  update,
-}: {
-  leads: Lead[];
-  update: (id: string, patch: Partial<Lead>) => void;
-}) {
-  const rows = useMemo(() => leads, [leads]);
-
-  return (
-    <div className="tableWrap">
-      <table>
-        <thead>
-          <tr><th>Lead</th><th>Origem</th><th>Score</th><th>Status</th><th>Contato</th><th /></tr>
-        </thead>
-        <tbody>
-          {rows.map((lead) => (
-            <tr key={lead.id}>
-              <td><b>{lead.name}</b><small>{lead.company || '—'}</small></td>
-              <td>{lead.source}</td>
-              <td><span className="score">{lead.score}</span></td>
-              <td>
-                <select
-                  value={lead.status}
-                  onChange={(event) => update(lead.id, { status: event.target.value as LeadStatus })}
-                >
-                  {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </td>
-              <td><small>{lead.email || lead.phone || '—'}</small></td>
-              <td>
-                {lead.source_url && (
-                  <a href={lead.source_url} target="_blank" rel="noreferrer" aria-label="Abrir origem">
-                    <ExternalLink size={16} />
-                  </a>
-                )}
-              </td>
-            </tr>
-          ))}
-          {!rows.length && <tr><td colSpan={6} className="empty">Nenhum lead ainda.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+async function updateLead(id:string,patch:Partial<Lead>){if(!supabase)return;const {error}=await supabase.from('leads').update(patch).eq('id',id);if(error)throw new Error(error.message);}
+function Metric({label,value}:{label:string;value:number}){return <div className="metric"><span>{label}</span><strong>{value}</strong></div>}
+function LeadTable({leads,update,edit,remove,activity}:{leads:Lead[];update:(id:string,p:Partial<Lead>)=>Promise<void>;edit:(l:Lead)=>void;remove:(l:Lead)=>void;activity:(l:Lead)=>void}){return <div className="tableWrap"><table><thead><tr><th>Lead</th><th>Origem</th><th>Score</th><th>Status</th><th>Contato</th><th>Ações</th></tr></thead><tbody>{leads.map(l=><tr key={l.id}><td><b>{l.name}</b><small>{l.company||'—'}</small></td><td>{l.source}</td><td><span className="score">{l.score}</span></td><td><select value={l.status} onChange={e=>void update(l.id,{status:e.target.value as LeadStatus})}>{statuses.map(s=><option key={s} value={s}>{statusLabel[s]}</option>)}</select></td><td><small>{l.email||l.phone||'—'}</small></td><td className="actions"><button title="Editar" onClick={()=>edit(l)}><Pencil size={15}/></button><button title="Atividade" onClick={()=>activity(l)}><Activity size={15}/></button>{l.source_url&&<a href={l.source_url} target="_blank" rel="noreferrer" title="Origem"><ExternalLink size={15}/></a>}<button title="Excluir" onClick={()=>remove(l)}><Trash2 size={15}/></button></td></tr>)}{!leads.length&&<tr><td colSpan={6} className="empty">Nenhum lead encontrado.</td></tr>}</tbody></table></div>}
+function LeadModal({form,setForm,onClose,onSave,busy,editing}:{form:LeadForm;setForm:Dispatch<SetStateAction<LeadForm>>;onClose:()=>void;onSave:(e:FormEvent)=>void;busy:boolean;editing:boolean}){const f=(k:keyof LeadForm)=>(e:{target:{value:string}})=>setForm(v=>({...v,[k]:e.target.value}));return <div className="overlay"><form className="modal" onSubmit={onSave}><div className="modalHead"><div><h3>{editing?'Editar lead':'Novo lead'}</h3><span className="muted">Todos os dados ficam no CRM.</span></div><button type="button" onClick={onClose}><X/></button></div><div className="formGrid"><label>Nome<input value={form.name} onChange={f('name')} required/></label><label>Empresa<input value={form.company} onChange={f('company')}/></label><label>E-mail<input type="email" value={form.email} onChange={f('email')}/></label><label>Telefone<input value={form.phone} onChange={f('phone')}/></label><label>Origem<input value={form.source} onChange={f('source')}/></label><label>Status<select value={form.status} onChange={f('status')}>{statuses.map(s=><option key={s} value={s}>{statusLabel[s]}</option>)}</select></label><label>Interesse<input value={form.interest} onChange={f('interest')}/></label><label>Consentimento em<input type="datetime-local" value={form.consent_at} onChange={f('consent_at')}/></label><label>Fonte do consentimento<input value={form.consent_source} onChange={f('consent_source')}/></label><label>URL de origem<input value={form.source_url} onChange={f('source_url')}/></label><label className="full">Detalhes da origem<input value={form.source_detail} onChange={f('source_detail')}/></label><label className="full">Observações<textarea value={form.notes} onChange={f('notes')} rows={5}/></label></div><div className="modalActions"><button type="button" onClick={onClose}>Cancelar</button><button type="submit" disabled={busy}><CheckCircle2 size={16}/>{busy?'Salvando…':'Salvar lead'}</button></div></form></div>}
+function ActivityModal({lead,value,setValue,onClose,onSave}:{lead:Lead;value:string;setValue:(v:string)=>void;onClose:()=>void;onSave:()=>void}){return <div className="overlay"><div className="modal smallModal"><div className="modalHead"><div><h3>Atividade — {lead.name}</h3><span className="muted">Registre uma nota ou interação.</span></div><button onClick={onClose}><X/></button></div><textarea rows={7} value={value} onChange={e=>setValue(e.target.value)} placeholder="Ex.: liguei, cliente pediu retorno amanhã…"/><div className="modalActions"><button onClick={onClose}>Cancelar</button><button onClick={onSave} disabled={!value.trim()}>Registrar</button></div></div></div>}
