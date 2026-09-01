@@ -1,55 +1,52 @@
-# LEADCHECKIN — Build V6 — Prospecção por intenção financeira
+# LEADCHECKIN — V7 CAPTURA PROGRESSIVA + LOGS
 
-Delta para aplicar sobre o repositório atual `W2CAPITAL/LEADCHECKIN`.
+Delta para aplicar sobre o `W2CAPITAL/LEADCHECKIN` atual.
 
-## Objetivo comercial
+## O que foi corrigido
 
-O Lead Generator deixa de ser um buscador de empresas genéricas. O objetivo é encontrar **oportunidades públicas de pessoas que demonstraram intenção ou problema relacionado a produtos financeiros** que podem ter aderência a uma assessoria financeira/revisional.
+### 1. Resultados progressivos
+O endpoint `/api/lead-discover` agora responde em NDJSON/streaming. O frontend lê a resposta em fluxo e adiciona cada lead à lista imediatamente.
 
-Produtos:
+Fluxo:
 
-- Financiamento de veículo
-- Financiamento imobiliário
-- Empréstimo
-- Dívida / renegociação
-- Revisão contratual
+`fonte -> encontrou 1 -> tela mostra 1 -> encontrou outro -> tela mostra outro`
 
-## Como funciona
+Não espera a pesquisa inteira terminar para montar a lista.
 
-1. O usuário escolhe produto + cidade.
-2. O backend cria várias buscas de intenção, por exemplo: juros abusivos, revisão, parcela alta, renegociação, dificuldade de pagamento e pedido de ajuda.
-3. Consulta fontes públicas gratuitas sem API key.
-4. Deduplica resultados.
-5. Classifica a intenção de 0 a 100 e ordena maior intenção primeiro.
-6. Tenta acessar a página pública e páginas internas relevantes.
-7. Mantém e-mail/telefone somente quando publicados na página pública acessível.
-8. Salva no CRM Supabase com a intenção, produto, score e URL de origem.
+### 2. Logs em tempo real
+A interface ganhou uma área **Logs da captação**, com horário, fonte e mensagem. Ela registra Overpass, DuckDuckGo, Bing, scanner, deduplicação, falhas parciais e conclusão.
 
-## Gratuito
+### 3. Despachantes
+A busca OSM foi ampliada para considerar também a tag `office` e termos específicos para `despachante`, `despachantes`, `despachante documentalista`, `documentalista` e `documentação de veículos`.
 
-Não usa Google Places, Google Maps API, n8n, API paga, lista privada de consumidores ou base de CPF.
+### 4. Busca pública mais robusta
+O fallback agora usa:
+- DuckDuckGo HTML;
+- Bing RSS público.
 
-Fontes sem chave:
+O Bing usa RSS porque links de resultado HTML podem ser redirecionados pelo próprio Bing e não devem ser tratados como se fossem URLs empresariais.
 
-- DuckDuckGo HTML — busca pública.
-- Google News RSS — índice público complementar.
-- Páginas públicas acessíveis encontradas nos resultados.
+### 5. Falha parcial não vira falso zero
+Se uma fonte falhar, o log informa a falha e a execução continua. Se Overpass não retornar, as buscas públicas continuam. Se um site bloquear o scanner, o resultado continua na lista.
 
-As fontes são infraestrutura pública e podem responder com 403/429/CAPTCHA ou cobertura incompleta. O sistema não tenta contornar bloqueios.
+### 6. Google Places continua fora
+Nenhuma chave é necessária. Não há Google Places, n8n ou API paga obrigatória.
 
-## Aplicação
+## Arquivos
 
-Substitua:
-
+Substituir:
 - `src/App.tsx`
 - `api/lead-discover.ts`
 
-Adicione:
-
-- `docs/LEAD-GENERATOR-INTENCAO.md`
-
-Depois execute no repositório completo:
+## Deploy
 
 ```bash
 npm run build
+git add src/App.tsx api/lead-discover.ts
+git commit -m "feat: progressive lead discovery and capture logs"
+git push
 ```
+
+## Observação técnica
+
+O streaming usa `application/x-ndjson`. Em ambientes que bufferizem a resposta, o navegador pode receber grupos de eventos em vez de cada evento isoladamente; o protocolo do aplicativo continua progressivo e não depende de esperar o JSON final.
