@@ -1,18 +1,10 @@
-# Leadcheck
+# Leadcheck V11 — Deep Contact Discovery
 
-CRM real com Supabase + Lead Generator público.
+O Lead Generator agora pesquisa em camadas e só promove um resultado quando confirma **nome público + telefone/celular/WhatsApp público**. E-mail pode ser armazenado como contato complementar, mas não substitui o telefone para elegibilidade.
 
-## Vercel / Supabase
+A execução combina busca pública, páginas e perfis públicos, hubs públicos de contato (quando vinculados publicamente), além de uma segunda busca pelo nome/handle para tentar confirmar o telefone. Ela para no primeiro lead contatável confirmado ou ao esgotar a janela de execução da função; não usa loop infinito no servidor.
 
-O frontend aceita as variáveis `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`. Para preservar deployments existentes, também aceita `SUPABASE_URL` + `SUPABASE_ANON_KEY`, `SUPABASE_PUBLISHABLE_KEY` e `NEXT_PUBLIC_SUPABASE_URL`.
+Não acessa áreas privadas, não burla login e não tenta revelar CPF, dados bancários, score de crédito ou contatos ocultos.
 
-Mesmo que as variáveis não sejam expostas ao build do Vite, o app tenta carregá-las em tempo de execução por `/api/supabase-config`, usando as mesmas variáveis normais da Vercel. A chave retornada é a anon/publishable, nunca a `service_role`.
-
-## Deploy
-
-1. Suba o conteúdo deste diretório na raiz do repositório.
-2. Configure no Vercel pelo menos `SUPABASE_URL` e `SUPABASE_ANON_KEY` (ou `SUPABASE_PUBLISHABLE_KEY`).
-3. Execute `supabase/schema.sql` no SQL Editor do projeto Supabase novo.
-4. Faça redeploy.
-
-Não coloque `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_SECRET_KEY` ou `SUPABASE_JWT_SECRET` como `VITE_*`.
+## Vercel
+`api/lead-discover.ts` usa streaming NDJSON e `maxDuration` de 60 segundos. O processamento é deliberadamente progressivo para exibir logs e o primeiro lead assim que houver confirmação.

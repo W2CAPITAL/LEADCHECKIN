@@ -1,1 +1,7 @@
-{"functions":{"api/public-scan.ts":{"maxDuration":60},"api/lead-discover.ts":{"maxDuration":60}}}
+{
+  "functions": {
+    "api/lead-discover.ts": { "maxDuration": 60 },
+    "api/public-scan.ts": { "maxDuration": 30 },
+    "api/supabase-config.ts": { "maxDuration": 10 }
+  }
+}
