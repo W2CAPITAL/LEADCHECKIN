@@ -16,6 +16,7 @@ const SEARCH_DELAY_MS=1400;
 const MAX_QUERY_HISTORY=4000;
 const MAX_URL_HISTORY=4000;
 const CONTACT_HUB_HOSTS=['linktr.ee','beacons.ai','bio.site','taplink.cc','carrd.co','solo.to','msha.ke','lnk.bio','wa.me','api.whatsapp.com'];
+const sourcesByRound=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br','forum.hardmob.com.br','forum.adrenaline.com.br','groups.google.com','medium.com'];
 
 function clean(s:string){return s.replace(/\s+/g,' ').trim();}
 function decode(s:string){return s.replace(/<!\[CDATA\[|\]\]>/g,'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
@@ -121,8 +122,8 @@ function searchQueries(product:string,city:string,round:number){
   qs.push(`"${cityQ}" "${base}" "facebook.com" "whatsapp"`);
   qs.push(`"${cityQ}" "${base}" "youtube.com" "contato"`);
   // Round-based variation prevents cycling the same exact query set.
-  qs.push(`"${cityQ}" "${base}" "experiência" "juros" "${round+1}"`);
-  qs.push(`"${cityQ}" "${base}" "problema" "parcela" "${round+1}"`);
+  const variants=["relato","dúvida","reclamação","preciso resolver","estou pagando","contratei"];
+  for(let i=0;i<variants.length;i++){const v=variants[(round+i)%variants.length];qs.push(`"${cityQ}" "${base}" "${v}"`);}
   return uniq(qs.map(qKey));
 }
 async function searchDuck(q:string){
@@ -155,11 +156,12 @@ async function enrich(row:LeadResult, start:number):Promise<LeadResult>{
       // Only follow contact channels that are explicitly linked from the public page/profile.
       if(/^(tel:|mailto:)/i.test(link)||/wa\.me|api\.whatsapp\.com/i.test(link)){contactUrl=link;phones=[...new Set([...phones,...extractPhones(link)])];emails=[...new Set([...emails,...extractEmails(link)])];continue;}
       if(CONTACT_HUB_HOSTS.some(x=>h===x||h.endsWith(`.${x}`))){const r=await fetchText(link);if(r.text){contactUrl=r.url||link;const v=htmlText(r.text).slice(0,100000);phones=[...new Set([...phones,...extractPhones(v),...extractTelAndWa(r.text).flatMap(extractPhones)])].slice(0,12);emails=[...new Set([...emails,...extractEmails(r.text),...extractEmails(v)])].slice(0,12);personName=personName||parseJsonLd(r.text)||nameFromMeta(r.text);}}
-      // Social links are only inspected for contact information visible on the linked public profile itself.
-      if(publicSocialHost(link)){const r=await fetchText(link);if(r.text){const socialText=htmlText(r.text).slice(0,100000);const socialName=parseJsonLd(r.text)||nameFromMeta(r.text)||extractName('',socialText,r.text);if(socialName)personName=personName||socialName;phones=[...new Set([...phones,...extractPhones(socialText),...extractTelAndWa(r.text).flatMap(extractPhones)])].slice(0,12);emails=[...new Set([...emails,...extractEmails(r.text)])].slice(0,12);}}
+      // Do not pivot from one platform to another to discover a private contact.
+      // Social profile links are kept only as provenance; contact extraction is limited to
+      // the original public page and explicitly linked contact hubs/phone links.
     }
   }
-  const isPerson=Boolean(personName&&personSeedOk(row,personName));
+  const isPerson=Boolean(personName&&personSeedOk(row,personName)&&/\s/.test(personName));
   const contactType=phones.length&&emails.length?'both':phones.length?'phone':emails.length?'email':'none';
   return {...row,url:page,personName,email:emails[0],phone:phones[0],contactType,contactStatus:contactType==='none'?'Sem contato público utilizável':`Contato público encontrado (${contactType})`,isPerson,profileUrl:row.url,contactUrl:contactUrl||undefined,discoveredVia:contactUrl?'perfil público → contato explicitamente vinculado':'resultado público'};
 }
@@ -180,7 +182,7 @@ export default async function handler(req:VercelRequest,res:VercelResponse){
     const qs=searchQueries(product,city,round);
     const available=qs.filter(q=>!excludeQueries.has(qKey(q)));
     // Never intentionally run the same query twice in the same continuous session.
-    const selected=shuffle(available).slice(0,3);
+    const selected=shuffle(available).slice(0,2);
     let nextCursor=cursor+selected.length;
     if(!selected.length){
       emit(res,{type:'log',source:'Diversificação',message:'Todas as consultas desta família já foram usadas nesta sessão; gerando uma nova família de termos, fontes e combinações.'});

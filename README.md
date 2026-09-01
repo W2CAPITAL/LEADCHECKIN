@@ -11,3 +11,6 @@ Correções desta versão:
 - preserva o CRM/Supabase da versão anterior.
 
 Importante: a descoberta automática de contatos pessoais permanece limitada a informações de contato publicamente fornecidas no próprio contexto/página pública; o sistema não tenta revelar telefone privado, acessar áreas restritas ou cruzar identidades para descobrir contato oculto.
+
+## FREE/PUBLIC ONLY
+Esta versão segue somente fontes públicas e alternativas gratuitas. Não exige BigDataCorp, Infosimples, APIBrasil paga, Credify, Speedio, LeadJet ou outra fonte de dados paga. O Lead Generator não usa bases privadas nem tenta descobrir telefone pessoal oculto por cruzamento entre plataformas.
