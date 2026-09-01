@@ -41,7 +41,7 @@ export default function App(){
  async function scanPage(){setBusy(true);setScan(null);setMsg('');try{const r=await fetch('/api/public-scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:scanUrl})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Falha no scanner');setScan(data);}catch(e){setMsg(e instanceof Error?e.message:'Falha no scanner');}finally{setBusy(false);}}
  const discoverAbortRef=useRef<AbortController|null>(null);
  async function discoverLeads(){
-   if(discoverAbortRef.current){discoverAbortRef.current.abort();discoverAbortRef.current=null;setBusy(false);setMsg('Captação interrompida.');return;}
+   if(discoverAbortRef.current){discoverAbortRef.current.abort();discoverAbortRef.current=null;setBusy(false);setMsg('Captação interrompida pelo usuário.');return;}
    if(!discoverQuery.trim()||!discoverCity.trim())return;
    setBusy(true);setDiscover({total:0,eligible:0,rejected:0,results:[]});setDiscoverLogs([]);setMsg('');
    const seenUrls=new Set<string>(); const seenCandidateKeys=new Set<string>(); const seenQueries=new Set<string>(); let cursor=0; let round=0; let analyzed=0; let eligibleCount=0; let rejected=0; let cycle=0; let running=true;
@@ -68,10 +68,10 @@ export default function App(){
        if(!running)break;
        round+=1;
        // The server intentionally finishes in small chunks so Vercel does not time out. The client reconnects immediately.
-       await new Promise(resolve=>setTimeout(resolve,700));
+       await new Promise(resolve=>setTimeout(resolve,1800));
      }catch(e){
        if((e as Error).name==='AbortError')break;
-       setMsg(e instanceof Error?e.message:'Falha na busca');addLog('Erro',e instanceof Error?e.message:'Falha na busca');await new Promise(resolve=>setTimeout(resolve,1200));
+       setMsg(e instanceof Error?e.message:'Falha na busca');addLog('Erro',e instanceof Error?e.message:'Falha na busca');await new Promise(resolve=>setTimeout(resolve,2500));
      }
    }
    discoverAbortRef.current=null;setBusy(false);if(!running)setMsg('Captação interrompida pelo usuário.');

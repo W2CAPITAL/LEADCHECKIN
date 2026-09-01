@@ -12,7 +12,7 @@ const FETCH_TIMEOUT=2600;
 const RUN_BUDGET_MS=7600;
 const MAX_SEED_RESULTS=18;
 const MAX_PAGE_LINKS=6;
-const SEARCH_DELAY_MS=650;
+const SEARCH_DELAY_MS=1400;
 const MAX_QUERY_HISTORY=4000;
 const MAX_URL_HISTORY=4000;
 const CONTACT_HUB_HOSTS=['linktr.ee','beacons.ai','bio.site','taplink.cc','carrd.co','solo.to','msha.ke','lnk.bio','wa.me','api.whatsapp.com'];
@@ -24,6 +24,7 @@ function normUrl(v:string){try{const u=new URL(v);u.hash='';return u.toString();
 function absUrl(v:string,base:string){try{return new URL(v,base).toString();}catch{return '';}}
 function htmlText(h:string){return clean(decode(h.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<noscript[\s\S]*?<\/noscript>/gi,' ').replace(/<[^>]+>/g,' ')));}
 function withinBudget(start:number){return Date.now()-start<RUN_BUDGET_MS;}
+function delay(ms:number){return new Promise<void>(resolve=>setTimeout(resolve,Math.max(0,ms)));}
 async function fetchText(url:string,headers:Record<string,string>={}){
   const c=new AbortController(); const t=setTimeout(()=>c.abort(),FETCH_TIMEOUT);
   try{const r=await fetch(url,{redirect:'follow',signal:c.signal,headers:{'user-agent':UA,accept:'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7',...headers}});return{status:r.status,url:r.url||url,text:r.ok?await r.text():''};}
@@ -67,6 +68,7 @@ function relevant(text:string){return /juros|parcela|revis|contrat|emprést|empr
 function publicSocialHost(value:string){const h=host(value);return ['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','linkedin.com','medium.com','consumidor.gov.br'].some(x=>h===x||h.endsWith(`.${x}`));}
 function likelyOrganization(text:string,url:string){const t=text.toLowerCase();const h=host(url);if(/\b(s\.a\.?|ltda|me\.?|eireli|banco|financeira|fintech|instituição|instituicao|empresa|portal|plataforma|site oficial|oficial|s\.a)\b/.test(t))return true;const known=['bb.com.br','finanzero.com.br','jurosbaixos.com.br','simplic.com.br','supersim.com.br','ciclic.com.br','financera.com.br'];if(known.some(x=>h===x||h.endsWith(`.${x}`)))return true;return false;}
 function personSeedOk(row:LeadResult,name?:string){if(!name||likelyOrganization(`${row.title} ${row.snippet}`,row.url))return false;const text=`${row.title} ${row.snippet}`;return publicSocialHost(row.url)&&looksPerson(text);}
+function candidateKey(row:LeadResult){return clean(`${host(row.url)}|${row.title}|${row.snippet.slice(0,220)}`).toLowerCase();}
 function uniq<T>(arr:T[]){return [...new Set(arr)];}
 function qKey(q:string){return clean(q).toLowerCase();}
 function searchQueries(product:string,city:string,round:number){
@@ -82,23 +84,30 @@ function searchQueries(product:string,city:string,round:number){
     '"meu emprestimo"','"minha parcela"','"não consigo pagar"','"nao consigo pagar"','"desconto em folha"','"portabilidade"',
     '"CET"','"taxa muito alta"','"parcela aumentou"','"contrato bancário"','"contrato bancario"'
   ];
-  const community=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br'];
+  const community=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br','forum.hardmob.com.br','forum.adrenaline.com.br','groups.google.com','medium.com','brasil247.com','terra.com.br','uol.com.br'];
+  const qualifiers=['pessoa','cliente','consumidor','contrato','banco','financeira','parcela','salário','benefício','folha','carro','moto','veículo','imóvel','cartão','dívida','renegociação','portabilidade','CET','taxa'];
   const extra=[
     '"procuro advogado"','"preciso de advogado"','"advogado" "juros abusivos"','"ação revisional"','"acao revisional"',
     '"revisão de empréstimo"','"revisao de emprestimo"','"revisão de financiamento"','"revisao de financiamento"',
     '"empréstimo consignado" "meu"','"emprestimo consignado" "meu"','"consignado" "minha parcela"'
   ];
-  const sourcesByRound=community.slice((round*3)%community.length).concat(community.slice(0,(round*3)%community.length));
+  const shift=(round*7)%firstPerson.length;
   const qs:string[]=[];
-  // Prefer first-person, problem-specific queries over generic product searches.
-  for(const fp of firstPerson){
-    const p=pain[(round+qs.length)%pain.length];
-    qs.push(`"${base}" "${cityQ}" ${fp} ${p}`);
-    qs.push(`"${cityQ}" ${fp} ${p} "${base}"`);
+  for(let i=0;i<firstPerson.length;i++){
+    const fp=firstPerson[(i+shift)%firstPerson.length];
+    const p=pain[(round*3+i)%pain.length];
+    const qual=qualifiers[(round+i)%qualifiers.length];
+    qs.push(`"${base}" "${cityQ}" ${fp} ${p} "${qual}"`);
+    qs.push(`"${cityQ}" ${fp} ${p} "${base}" "${qual}"`);
+    if(i%3===0){
+      const site=community[(round+i)%community.length];
+      qs.push(`site:${site} "${base}" "${cityQ}" ${fp} ${p}`);
+    }
   }
-  for(let i=0;i<extra.length;i++){
-    const x=extra[(round+i)%extra.length];
-    qs.push(`"${cityQ}" ${x} "${base}"`);
+  for(let i=0;i<extra.length*2;i++){
+    const x=extra[(round+i*5)%extra.length];
+    const qual=qualifiers[(round+i*2)%qualifiers.length];
+    qs.push(`"${cityQ}" ${x} "${base}" "${qual}"`);
   }
   for(const site of sourcesByRound){
     const p=pain[(round*5 + sourcesByRound.indexOf(site))%pain.length];
@@ -171,11 +180,11 @@ export default async function handler(req:VercelRequest,res:VercelResponse){
     const qs=searchQueries(product,city,round);
     const available=qs.filter(q=>!excludeQueries.has(qKey(q)));
     // Never intentionally run the same query twice in the same continuous session.
-    const selected=available.slice(0,3);
+    const selected=shuffle(available).slice(0,3);
     let nextCursor=cursor+selected.length;
     if(!selected.length){
-      emit(res,{type:'log',source:'Diversificação',message:'As consultas conhecidas desta combinação já foram usadas; a próxima rodada muda frases, comunidades e intenção para evitar repetição.'});
-      nextCursor=0;
+      emit(res,{type:'log',source:'Diversificação',message:'Todas as consultas desta família já foram usadas nesta sessão; gerando uma nova família de termos, fontes e combinações.'});
+      nextCursor=cursor+1;
     }
     const seenBatch=new Set<string>();
     for(const q of shuffle(selected)){
