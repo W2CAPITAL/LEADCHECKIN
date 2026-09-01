@@ -1,30 +1,197 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-type Result = {
-  title: string; company: string; url: string; snippet: string; email?: string; phone?: string; cnpj?: string; source: string; address?: string; lat?: number; lon?: number;
+type LeadResult = {
+  title: string;
+  company: string;
+  url: string;
+  snippet: string;
+  source: string;
+  intent: string;
+  score: number;
+  personName?: string;
+  contactStatus?: string;
+  email?: string;
+  phone?: string;
 };
-const UA='Leadcheck/1.2 (+public-free-business-discovery)';
-const FETCH_TIMEOUT=6500;
-const MAX_RESULTS=240;
-const MAX_SITES_TO_SCAN=80;
-const OVERPASS_ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-function clean(s:string){return s.replace(/\s+/g,' ').trim()}
-function decodeHtml(s:string){return s.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#x27;/g,"'")}
-function absoluteUrl(v:string,b?:string){try{return new URL(v,b).toString()}catch{return ''}}
-function normalizeUrl(v:string){try{const u=new URL(v);u.hash='';u.search='';u.pathname=u.pathname.replace(/\/$/,'')||'/';return u.toString()}catch{return v}}
-function hostOf(v:string){try{return new URL(v).hostname.replace(/^www\./,'').toLowerCase()}catch{return ''}}
-function looksLikeBusinessSite(url:string){const h=hostOf(url);return !!h&&!/(facebook|instagram|linkedin|youtube|tiktok|twitter|x\.com|google\.|bing\.|duckduckgo\.|yelp\.|tripadvisor\.|wikipedia\.)/i.test(h)}
-function htmlText(html:string){return clean(decodeHtml(html.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ')))}
-async function fetchText(url:string,init:RequestInit={}){const c=new AbortController();const t=setTimeout(()=>c.abort(),FETCH_TIMEOUT);try{const r=await fetch(url,{...init,headers:{'user-agent':UA,accept:'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',...(init.headers||{})},redirect:'follow',signal:c.signal});return{status:r.status,text:r.ok?await r.text():''}}catch{return{status:0,text:''}}finally{clearTimeout(t)}}
-function extractContacts(html:string){const emails=new Set<string>(),phones=new Set<string>(),cnpjs=new Set<string>();for(const m of html.matchAll(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)){const e=m[0].toLowerCase();if(!/example\.|sentry\.|wixpress\.|schema\.org|cloudflare/i.test(e))emails.add(e)}for(const m of html.matchAll(/(?:\+55[\s.-]?)?(?:\(?\d{2}\)?[\s.-]?)?(?:9[\s.-]?)?\d{4}[\s.-]?\d{4}/g)){const p=clean(m[0]),d=p.replace(/\D/g,'');if(d.length>=10&&d.length<=13)phones.add(p)}for(const m of html.matchAll(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b|\b\d{14}\b/g))cnpjs.add(m[0]);return{email:[...emails][0],phone:[...phones][0],cnpj:[...cnpjs][0]}}
-function contactFromTags(t:Record<string,string>={}){return{email:t['contact:email']||t.email||undefined,phone:t['contact:phone']||t.phone||t['contact:mobile']||undefined,cnpj:t['ref:br:cnpj']||undefined}}
-function siteFromTags(t:Record<string,string>={}){const r=t.website||t['contact:website']||t.url||'';return r?normalizeUrl(/^https?:\/\//i.test(r)?r:`https://${r}`):''}
-function segmentTerms(segment:string){const s=clean(segment).toLowerCase();const groups:Record<string,string[]>={emprestimo:['emprestimo','empréstimo','credito','crédito','consignado','financeira','financiamento'],crédito:['credito','crédito','emprestimo','empréstimo','financiamento','consignado'],credito:['credito','crédito','emprestimo','empréstimo','financiamento','consignado'],advocacia:['advocacia','advogado','advogados','escritorio de advocacia','escritório de advocacia'],imobiliaria:['imobiliaria','imobiliária','imoveis','imóveis','corretora de imoveis','corretora de imóveis'],contabilidade:['contabilidade','contador','contadores','escritorio contabil','escritório contábil'],seguros:['seguros','corretora de seguros','seguro'],despachante:['despachante','despachantes','despachante documentalista','documentalista','documentação de veículos']};const key=Object.keys(groups).find(k=>s.includes(k));return[...new Set([s,...(key?groups[key]:[])])].filter(Boolean)}
-async function overpass(segment:string,city:string,emit?:(x:any)=>void){const terms=segmentTerms(segment).map(x=>x.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&').replace(/\s+/g,'[\\s_-]*'));const regex=terms.join('|'),cityEsc=city.replace(/"/g,'\\"');const q=`[out:json][timeout:35];area["name"="${cityEsc}"]["boundary"="administrative"]->.a;(nwr(area.a)["name"~"${regex}",i];nwr(area.a)["brand"~"${regex}",i];nwr(area.a)["operator"~"${regex}",i];nwr(area.a)["description"~"${regex}",i];nwr(area.a)["office"~"${regex}",i];);out center tags;`;for(const endpoint of OVERPASS_ENDPOINTS){try{emit?.({type:'log',level:'info',source:'OpenStreetMap/Overpass',message:`Consultando ${endpoint} para “${segment}” em ${city}…`});const c=new AbortController(),timer=setTimeout(()=>c.abort(),40000);const r=await fetch(endpoint,{method:'POST',headers:{'user-agent':UA,'content-type':'application/x-www-form-urlencoded',accept:'application/json'},body:`data=${encodeURIComponent(q)}`,signal:c.signal});clearTimeout(timer);if(!r.ok){emit?.({type:'log',level:'warn',source:'OpenStreetMap/Overpass',message:`Fonte respondeu HTTP ${r.status}; tentando outra fonte.`});continue}const json=await r.json() as{elements?:any[]};const out:Result[]=[];for(const el of json.elements||[]){const tags=el.tags||{},name=clean(tags.name||tags.brand||tags.operator||'');if(!name)continue;const url=siteFromTags(tags),c=contactFromTags(tags),address=clean([tags['addr:street'],tags['addr:housenumber'],tags['addr:suburb'],tags['addr:city']||city].filter(Boolean).join(', '));const item:Result={title:name,company:name,url,snippet:address||`Empresa encontrada no OpenStreetMap em ${city}.`,source:'openstreetmap-overpass',...c,address,lat:Number(el.lat??el.center?.lat)||undefined,lon:Number(el.lon??el.center?.lon)||undefined};out.push(item);emit?.({type:'lead',lead:item,source:'OpenStreetMap/Overpass'});if(out.length>=MAX_RESULTS)break}if(out.length){emit?.({type:'log',level:'success',source:'OpenStreetMap/Overpass',message:`${out.length} resultados encontrados.`});return out}emit?.({type:'log',level:'info',source:'OpenStreetMap/Overpass',message:'Nenhum resultado nessa fonte.'})}catch(e){emit?.({type:'log',level:'warn',source:'OpenStreetMap/Overpass',message:`Falha de consulta: ${e instanceof Error?e.message:'erro de rede'}.`})}}return[]}
-function parseSearchHtml(text:string,source:string):Result[]{const out:Result[]=[];const re=/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;for(const m of text.matchAll(re)){let href=decodeHtml(m[1]);const uddg=href.match(/[?&]uddg=([^&]+)/i);if(uddg){try{href=decodeURIComponent(uddg[1])}catch{}}href=absoluteUrl(href);if(!looksLikeBusinessSite(href))continue;const title=htmlText(m[2]);if(title.length<3||title.length>180)continue;out.push({title,company:title,url:normalizeUrl(href),snippet:'Resultado de busca pública.',source});if(out.length>=50)break}return out}
-function parseBingRss(text:string):Result[]{const out:Result[]=[];for(const item of text.matchAll(/<item>([\s\S]*?)<\/item>/gi)){const block=item[1];const title=htmlText(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1]||'');const link=decodeHtml(block.match(/<link>([\s\S]*?)<\/link>/i)?.[1]||'');const desc=htmlText(block.match(/<description>([\s\S]*?)<\/description>/i)?.[1]||'');const url=normalizeUrl(link);if(title&&looksLikeBusinessSite(url))out.push({title,company:title,url,snippet:desc||'Resultado Bing público.',source:'bing-public-rss'});if(out.length>=50)break}return out}
-async function publicSearch(query:string,emit?:(x:any)=>void){const sources=[{name:'DuckDuckGo',url:`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,kind:'duckduckgo-public-search',parser:parseSearchHtml},{name:'Bing RSS',url:`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`,kind:'bing-public-rss',parser:parseBingRss}];const all:Result[]=[];for(const source of sources){emit?.({type:'log',level:'info',source:source.name,message:`Buscando: ${query}`});const r=await fetchText(source.url);if(!r.text){emit?.({type:'log',level:'warn',source:source.name,message:'Fonte não retornou dados; seguindo para a próxima.'});continue}const rows=source.parser(r.text,source.kind);emit?.({type:'log',level:'success',source:source.name,message:`${rows.length} resultados brutos.`});for(const x of rows){all.push(x);emit?.({type:'lead',lead:x,source:source.name})}}return all}
 
-async function scanSite(result:Result,emit?:(x:any)=>void){if(!result.url||!looksLikeBusinessSite(result.url))return result;emit?.({type:'log',level:'info',source:'Scanner',message:`Abrindo ${result.company||result.url}…`});const first=await fetchText(result.url);if(!first.text){emit?.({type:'log',level:'warn',source:'Scanner',message:`Não foi possível acessar ${result.url} (HTTP ${first.status||'rede'}).`});return result}const c0=extractContacts(first.text);let email=result.email||c0.email,phone=result.phone||c0.phone,cnpj=result.cnpj||c0.cnpj;const links:string[]=[];for(const m of first.text.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){const label=htmlText(m[2]);if(/(contato|contact|fale|atendimento|sobre|empresa|quem somos|ouvidoria|sac|servi[cç]os)/i.test(label)){const u=absoluteUrl(decodeHtml(m[1]),result.url);if(u&&hostOf(u)===hostOf(result.url))links.push(u)}}for(const p of ['/contato','/contact','/fale-conosco','/atendimento','/sobre','/quem-somos','/empresa','/ouvidoria','/sac'])links.push(absoluteUrl(p,result.url));for(const u of [...new Set(links)].slice(0,10)){if(email&&phone&&cnpj)break;const page=await fetchText(u);if(!page.text)continue;const c=extractContacts(page.text);email ||= c.email;phone ||= c.phone;cnpj ||= c.cnpj}const updated={...result,email,phone,cnpj};emit?.({type:'lead',lead:updated,source:'Scanner'});return updated}
-async function brasilApi(cnpj:string){const digits=cnpj.replace(/\D/g,'');if(digits.length!==14)return null;const r=await fetchText(`https://brasilapi.com.br/api/cnpj/v1/${digits}`,{headers:{accept:'application/json'}});if(!r.text)return null;try{return JSON.parse(r.text)}catch{return null}}
-export default async function handler(req:VercelRequest,res:VercelResponse){if(req.method!=='POST')return res.status(405).json({error:'Método não permitido.'});const query=clean(String(req.body?.query||'')),city=clean(String(req.body?.city||''));if(!query||!city)return res.status(400).json({error:'Informe segmento e cidade.'});res.statusCode=200;res.setHeader('Content-Type','application/x-ndjson; charset=utf-8');res.setHeader('Cache-Control','no-cache, no-transform');res.setHeader('Connection','keep-alive');const send=(x:any)=>{try{res.write(JSON.stringify(x)+'\n')}catch{}};const found=new Map<string,Result>();const add=(item:Result)=>{const key=item.url?hostOf(item.url):normalizeUrl(`${item.company}|${item.address||city}`);if(!key||found.has(key))return false;found.set(key,item);return true};try{send({type:'start',query,city});const osm=await overpass(query,city,send);for(const item of osm)add(item);const queries=[`"${query}" "${city}" contato telefone`,`"${query}" "${city}" "fale conosco"`,`"${query}" "${city}" endereço`,`"${query}" "${city}" site`];for(const q of queries){for(const item of await publicSearch(q,send))add(item)}const candidates=[...found.values()].slice(0,MAX_SITES_TO_SCAN);send({type:'log',level:'info',source:'Deduplicação',message:`${found.size} empresas candidatas; iniciando análise de sites.`});const scanned:Result[]=[];for(let i=0;i<candidates.length;i+=4){const rows=await Promise.all(candidates.slice(i,i+4).map(x=>scanSite(x,send)));for(const row of rows){scanned.push(row);send({type:'lead',lead:row,source:'resultado-final'})}}const enriched:Result[]=[];for(const item of scanned){let row=item;if(item.cnpj){const data=await brasilApi(item.cnpj);if(data)row={...item,company:item.company||data.nome_fantasia||data.razao_social||item.title,snippet:[item.snippet,data.razao_social||data.nome_fantasia].filter(Boolean).join(' · ')}}enriched.push(row)}send({type:'done',total:enriched.length,sources:['OpenStreetMap/Overpass','DuckDuckGo HTML','Bing HTML','sites empresariais públicos','BrasilAPI sob demanda'],free:true,googlePlaces:false,paidApiRequired:false});res.end()}catch(e){send({type:'error',error:e instanceof Error?e.message:'Falha na busca pública.'});res.end()}}
+type LogEvent = { type: 'log' | 'lead' | 'done' | 'error'; source?: string; message?: string; result?: LeadResult; total?: number };
+
+const UA = 'Leadcheck/2.0 (+public-intent-discovery)';
+const FETCH_TIMEOUT = 7000;
+const MAX_RESULTS = 120;
+const MAX_QUERY_RESULTS = 12;
+
+function clean(s: string) { return s.replace(/\s+/g, ' ').trim(); }
+function decodeHtml(s: string) { return s.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
+function absoluteUrl(value: string, base?: string) { try { return new URL(value, base).toString(); } catch { return ''; } }
+function normalizeUrl(value: string) { try { const u = new URL(value); u.hash = ''; u.search = ''; u.pathname = u.pathname.replace(/\/$/, '') || '/'; return u.toString(); } catch { return value; } }
+function hostOf(value: string) { try { return new URL(value).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } }
+function htmlText(html: string) { return clean(decodeHtml(html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' '))); }
+
+async function fetchText(url: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+  try {
+    const r = await fetch(url, { ...init, headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7', ...(init.headers || {}) }, redirect: 'follow', signal: controller.signal });
+    return { status: r.status, text: r.ok ? await r.text() : '' };
+  } catch { return { status: 0, text: '' }; } finally { clearTimeout(timer); }
+}
+
+function intentProfile(segment: string) {
+  const s = clean(segment).toLowerCase();
+  if (/consignad/.test(s)) return { label: 'Consignado', terms: ['consignado', 'empréstimo consignado', 'margem consignável', 'desconto em folha', 'parcela consignado'] };
+  if (/financiamento.*ve[ií]culo|ve[ií]culo.*financiamento|carro financiado|moto financiada/.test(s)) return { label: 'Financiamento de veículo', terms: ['financiamento de veículo', 'carro financiado', 'moto financiada', 'juros financiamento carro', 'revisão financiamento veículo', 'parcela carro'] };
+  if (/im[oó]vel|habitacional/.test(s)) return { label: 'Financiamento imobiliário', terms: ['financiamento imobiliário', 'financiamento de imóvel', 'juros financiamento imóvel', 'revisão financiamento imobiliário', 'parcela imóvel'] };
+  if (/despachante/.test(s)) return { label: 'Despachante', terms: ['despachante', 'documentação veículo', 'transferência veículo'] };
+  if (/empr[eé]stimo|cr[eé]dito/.test(s)) return { label: 'Empréstimo / crédito', terms: ['empréstimo', 'crédito', 'empréstimo consignado', 'juros empréstimo', 'revisão empréstimo', 'parcela empréstimo'] };
+  return { label: s, terms: [s] };
+}
+
+const intentSignals = [
+  /juros\s+(abusivos?|altos?)/i, /parcela\s+(alta|pesada|aumentou)/i, /revis[aã]o\s+(do|de|da)\s+(contrato|financiamento|empr[eé]stimo)/i,
+  /revisar\s+(meu|minha)\s+(contrato|financiamento|empr[eé]stimo)/i, /financiamento\s+.*(juros|parcela|problema)/i,
+  /empr[eé]stimo\s+.*(juros|parcela|problema)/i, /renegociar|renegocia[cç][aã]o/i, /n[aã]o\s+consigo\s+pagar/i,
+  /quero\s+(reduzir|diminuir|baixar)\s+(a\s+)?parcela/i, /cobran[cç]a\s+indevida/i, /contrato\s+abusivo/i,
+  /taxa\s+(de\s+)?juros/i, /meu\s+financiamento/i, /meu\s+empr[eé]stimo/i
+];
+
+function scoreIntent(text: string, profile: ReturnType<typeof intentProfile>) {
+  let score = 15;
+  for (const re of intentSignals) if (re.test(text)) score += 10;
+  if (profile.terms.some(t => text.toLowerCase().includes(t.toLowerCase()))) score += 20;
+  if (/revis[aã]o|juros abusivos?|contrato abusivo|n[aã]o consigo pagar|renegociar/i.test(text)) score += 20;
+  return Math.min(100, score);
+}
+
+function extractPersonName(title: string, snippet: string) {
+  const text = clean(`${title} ${snippet}`);
+  const m = text.match(/(?:por|postado por|usu[aá]rio|u\/|autor)\s*[:\-]?\s*([A-ZÁÀÃÂÉÊÍÓÔÕÚÇ][A-Za-zÀ-ÿ]{2,}(?:\s+[A-ZÁÀÃÂÉÊÍÓÔÕÚÇ][A-Za-zÀ-ÿ]{2,}){0,3})/);
+  return m?.[1];
+}
+
+function isSocialOrCommunity(url: string) {
+  const h = hostOf(url);
+  return /reddit\.com|youtube\.com|youtu\.be|facebook\.com|reclameaqui\.com\.br|tiktok\.com|x\.com|twitter\.com/i.test(h);
+}
+
+async function duck(query: string): Promise<LeadResult[]> {
+  const { text } = await fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+  if (!text) return [];
+  const out: LeadResult[] = [];
+  const blocks = text.split(/result__body/i).slice(1);
+  for (const block of blocks) {
+    const a = block.match(/<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i) || block.match(/<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*result__a[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    if (!a) continue;
+    let href = decodeHtml(a[1]); const uddg = href.match(/[?&]uddg=([^&]+)/i); if (uddg) { try { href = decodeURIComponent(uddg[1]); } catch {} }
+    href = absoluteUrl(href); if (!href) continue;
+    const snippet = htmlText(block.match(/result__snippet[^>]*>([\s\S]*?)<\/(?:a|div)>/i)?.[1] || '');
+    out.push({ title: htmlText(a[2]), company: '', url: normalizeUrl(href), snippet, source: isSocialOrCommunity(href) ? 'busca-publica-comunidade' : 'busca-publica', intent: '', score: 0, personName: extractPersonName(htmlText(a[2]), snippet), contactStatus: 'Não coletado automaticamente de redes/comunidades' });
+    if (out.length >= MAX_QUERY_RESULTS) break;
+  }
+  return out;
+}
+
+async function bingRss(query: string): Promise<LeadResult[]> {
+  const { text } = await fetchText(`https://www.bing.com/search?format=rss&q=${encodeURIComponent(query)}`);
+  if (!text) return [];
+  const out: LeadResult[] = [];
+  for (const item of text.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
+    const block = item[1];
+    const title = clean(decodeHtml(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || ''));
+    const link = decodeHtml(block.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || '');
+    const description = htmlText(block.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || '');
+    if (!link) continue;
+    out.push({ title, company: '', url: normalizeUrl(link), snippet: description, source: isSocialOrCommunity(link) ? 'bing-comunidade' : 'bing-public-search', intent: '', score: 0, personName: extractPersonName(title, description), contactStatus: 'Não coletado automaticamente de redes/comunidades' });
+  }
+  return out.slice(0, MAX_QUERY_RESULTS);
+}
+
+async function googleNews(query: string): Promise<LeadResult[]> {
+  const { text } = await fetchText(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=pt-BR&gl=BR&ceid=BR:pt-419`, { headers: { accept: 'application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8' } });
+  if (!text) return [];
+  const out: LeadResult[] = [];
+  for (const item of text.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
+    const block = item[1];
+    const title = clean(decodeHtml(block.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || ''));
+    const link = decodeHtml(block.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || '');
+    const description = htmlText(block.match(/<description>([\s\S]*?)<\/description>/i)?.[1] || '');
+    if (!link) continue;
+    out.push({ title, company: '', url: normalizeUrl(link), snippet: description, source: 'google-news-rss', intent: '', score: 0, personName: extractPersonName(title, description), contactStatus: 'Fonte pública; contato não coletado automaticamente' });
+  }
+  return out.slice(0, MAX_QUERY_RESULTS);
+}
+
+function queriesFor(profile: ReturnType<typeof intentProfile>, city: string) {
+  const base = profile.terms.slice(0, 4);
+  const q: string[] = [];
+  for (const term of base) {
+    q.push(`"${term}" "${city}" "juros abusivos"`);
+    q.push(`"${term}" "${city}" "revisão"`);
+    q.push(`"${term}" "${city}" "parcela"`);
+  }
+  for (const site of ['reddit.com', 'reclameaqui.com.br', 'youtube.com', 'facebook.com']) {
+    q.push(`site:${site} "${base[0]}" "${city}" ("juros" OR "parcela" OR "revisão")`);
+  }
+  return [...new Set(q)].slice(0, 18);
+}
+
+async function emit(res: VercelResponse, event: LogEvent) {
+  res.write(`${JSON.stringify(event)}\n`);
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Método não permitido.' });
+  const query = clean(String(req.body?.query || '')), city = clean(String(req.body?.city || ''));
+  if (!query || !city) return res.status(400).json({ error: 'Informe o produto/interesse e a cidade.' });
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  try {
+    const profile = intentProfile(query);
+    const found = new Map<string, LeadResult>();
+    const queries = queriesFor(profile, city);
+    await emit(res, { type: 'log', source: 'Motor de intenção', message: `Iniciando prospecção pública para ${profile.label} em ${city}.` });
+    await emit(res, { type: 'log', source: 'Política de dados', message: 'O motor procura sinais públicos de intenção. Não coleta CPF, dados bancários, score ou listas privadas de pessoas.' });
+
+    for (const q of queries) {
+      await emit(res, { type: 'log', source: 'Busca pública', message: `Consultando: ${q}` });
+      const [duckRows, bingRows] = await Promise.all([duck(q), bingRss(q)]);
+      const rows = [...duckRows, ...bingRows];
+      await emit(res, { type: 'log', source: 'Busca pública', message: `${rows.length} resultados brutos nesta consulta.` });
+      for (const row of rows) {
+        const text = `${row.title} ${row.snippet}`;
+        const score = scoreIntent(text, profile);
+        if (score < 45) continue;
+        const key = `${hostOf(row.url)}|${clean(row.title).toLowerCase()}|${clean(row.snippet).slice(0, 120).toLowerCase()}`;
+        if (found.has(key)) continue;
+        const result: LeadResult = { ...row, intent: profile.label, score };
+        found.set(key, result);
+        await emit(res, { type: 'lead', result, total: found.size });
+        if (found.size >= MAX_RESULTS) break;
+      }
+      if (found.size >= MAX_RESULTS) break;
+    }
+
+    await emit(res, { type: 'log', source: 'Comunidades públicas', message: 'Consultando resultados indexados de Reddit, Reclame Aqui, YouTube e Facebook. O Leadcheck registra a oportunidade e a fonte, mas não raspa CPF, telefone ou e-mail pessoal dessas plataformas.' });
+    const communityQueries = queriesFor(profile, city).filter(q => /site:(reddit|reclameaqui|youtube|facebook)/.test(q)).slice(0, 6);
+    for (const q of communityQueries) {
+      const rows = await googleNews(q);
+      for (const row of rows) {
+        const text = `${row.title} ${row.snippet}`;
+        const score = scoreIntent(text, profile);
+        if (score < 45) continue;
+        const key = `${hostOf(row.url)}|${clean(row.title).toLowerCase()}|${clean(row.snippet).slice(0, 120).toLowerCase()}`;
+        if (found.has(key)) continue;
+        const result = { ...row, intent: profile.label, score, source: 'google-news-public-index' };
+        found.set(key, result);
+        await emit(res, { type: 'lead', result, total: found.size });
+      }
+    }
+    await emit(res, { type: 'done', total: found.size, message: `${found.size} oportunidades públicas encontradas.` });
+    res.end();
+  } catch (e) {
+    await emit(res, { type: 'error', source: 'Motor de intenção', message: e instanceof Error ? e.message : 'Falha na prospecção pública.' });
+    res.end();
+  }
+}

@@ -1,52 +1,33 @@
-# LEADCHECKIN — V7 CAPTURA PROGRESSIVA + LOGS
+# LEADCHECKIN — Build V8: prospecção por intenção financeira
 
-Delta para aplicar sobre o `W2CAPITAL/LEADCHECKIN` atual.
+Delta para o repositório atual `W2CAPITAL/LEADCHECKIN`.
 
-## O que foi corrigido
+## Objetivo comercial
+O Lead Generator não trata empresas como o produto final. O foco é descobrir oportunidades públicas de pessoas que demonstraram interesse em empréstimo, consignado, financiamento de veículo/imóvel, revisão, juros, parcelas ou renegociação.
 
-### 1. Resultados progressivos
-O endpoint `/api/lead-discover` agora responde em NDJSON/streaming. O frontend lê a resposta em fluxo e adiciona cada lead à lista imediatamente.
+## O que mudou
+- processamento progressivo via NDJSON: cada oportunidade chega ao navegador assim que é encontrada;
+- logs de captação em tempo real;
+- consultas específicas para intenção financeira;
+- consultas `site:` para Reddit, Reclame Aqui, YouTube e Facebook através de resultados públicos indexados;
+- Bing RSS e Google News RSS como fontes gratuitas adicionais;
+- deduplicação por fonte/título/trecho;
+- score de intenção;
+- preservação de URL e snippet para verificação;
+- nenhuma Google Places API;
+- nenhuma API paga obrigatória;
+- nenhuma chave de API necessária para o motor básico;
+- não coleta CPF, dados bancários, score de crédito ou listas privadas.
 
-Fluxo:
+## APIs de crédito/consignado
+Não existe uma API pública gratuita e legítima que forneça, em massa, CPF + contrato de crédito/consignado + telefone de pessoas. Bureaus e integrações de crédito exigem contratação, credenciais e regras de uso. Por isso o Leadcheck usa intenção pública como fonte gratuita, em vez de fingir que uma API dessas é aberta.
 
-`fonte -> encontrou 1 -> tela mostra 1 -> encontrou outro -> tela mostra outro`
-
-Não espera a pesquisa inteira terminar para montar a lista.
-
-### 2. Logs em tempo real
-A interface ganhou uma área **Logs da captação**, com horário, fonte e mensagem. Ela registra Overpass, DuckDuckGo, Bing, scanner, deduplicação, falhas parciais e conclusão.
-
-### 3. Despachantes
-A busca OSM foi ampliada para considerar também a tag `office` e termos específicos para `despachante`, `despachantes`, `despachante documentalista`, `documentalista` e `documentação de veículos`.
-
-### 4. Busca pública mais robusta
-O fallback agora usa:
-- DuckDuckGo HTML;
-- Bing RSS público.
-
-O Bing usa RSS porque links de resultado HTML podem ser redirecionados pelo próprio Bing e não devem ser tratados como se fossem URLs empresariais.
-
-### 5. Falha parcial não vira falso zero
-Se uma fonte falhar, o log informa a falha e a execução continua. Se Overpass não retornar, as buscas públicas continuam. Se um site bloquear o scanner, o resultado continua na lista.
-
-### 6. Google Places continua fora
-Nenhuma chave é necessária. Não há Google Places, n8n ou API paga obrigatória.
-
-## Arquivos
-
-Substituir:
+## Deploy
+Substituir no projeto atual:
 - `src/App.tsx`
 - `api/lead-discover.ts`
 
-## Deploy
+Adicionar:
+- `docs/LEAD-GENERATOR-INTENCAO-V8.md`
 
-```bash
-npm run build
-git add src/App.tsx api/lead-discover.ts
-git commit -m "feat: progressive lead discovery and capture logs"
-git push
-```
-
-## Observação técnica
-
-O streaming usa `application/x-ndjson`. Em ambientes que bufferizem a resposta, o navegador pode receber grupos de eventos em vez de cada evento isoladamente; o protocolo do aplicativo continua progressivo e não depende de esperar o JSON final.
+O projeto principal continua usando o Supabase já configurado.
