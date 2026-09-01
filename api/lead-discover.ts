@@ -5,14 +5,16 @@ type LeadResult = {
   personName?:string; email?:string; phone?:string; contactType?:'phone'|'email'|'both'|'none'; contactStatus?:string;
   isPerson?:boolean; profileUrl?:string; contactUrl?:string; discoveredVia?:string;
 };
-type Event = {type:'log'|'lead'|'rejected'|'done'|'error'|'stats'; source?:string; message?:string; result?:LeadResult; total?:number; eligible?:number; rejected?:number; nextCursor?:number};
+type Event = {type:'log'|'lead'|'rejected'|'done'|'error'|'stats'; source?:string; message?:string; result?:LeadResult; total?:number; eligible?:number; rejected?:number; nextCursor?:number; queryKey?:string; candidateKey?:string};
 
 const UA='Leadcheck/4.0 (+public-intent-contact-discovery)';
-const FETCH_TIMEOUT=2400;
-const RUN_BUDGET_MS=8200;
-const MAX_SEED_RESULTS=30;
-const MAX_FOLLOWUP_RESULTS=30;
-const MAX_PAGE_LINKS=8;
+const FETCH_TIMEOUT=2600;
+const RUN_BUDGET_MS=7600;
+const MAX_SEED_RESULTS=18;
+const MAX_PAGE_LINKS=6;
+const SEARCH_DELAY_MS=650;
+const MAX_QUERY_HISTORY=4000;
+const MAX_URL_HISTORY=4000;
 const CONTACT_HUB_HOSTS=['linktr.ee','beacons.ai','bio.site','taplink.cc','carrd.co','solo.to','msha.ke','lnk.bio','wa.me','api.whatsapp.com'];
 
 function clean(s:string){return s.replace(/\s+/g,' ').trim();}
@@ -65,23 +67,54 @@ function relevant(text:string){return /juros|parcela|revis|contrat|emprést|empr
 function publicSocialHost(value:string){const h=host(value);return ['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','linkedin.com','medium.com','consumidor.gov.br'].some(x=>h===x||h.endsWith(`.${x}`));}
 function likelyOrganization(text:string,url:string){const t=text.toLowerCase();const h=host(url);if(/\b(s\.a\.?|ltda|me\.?|eireli|banco|financeira|fintech|instituição|instituicao|empresa|portal|plataforma|site oficial|oficial|s\.a)\b/.test(t))return true;const known=['bb.com.br','finanzero.com.br','jurosbaixos.com.br','simplic.com.br','supersim.com.br','ciclic.com.br','financera.com.br'];if(known.some(x=>h===x||h.endsWith(`.${x}`)))return true;return false;}
 function personSeedOk(row:LeadResult,name?:string){if(!name||likelyOrganization(`${row.title} ${row.snippet}`,row.url))return false;const text=`${row.title} ${row.snippet}`;return publicSocialHost(row.url)&&looksPerson(text);}
-function searchQueries(product:string,city:string){
+function uniq<T>(arr:T[]){return [...new Set(arr)];}
+function qKey(q:string){return clean(q).toLowerCase();}
+function searchQueries(product:string,city:string,round:number){
   const base=product.trim(); const cityQ=city.trim();
-  const pain=['"juros abusivos"','"juros altos"','"reduzir parcela"','"parcela alta"','"cobrança indevida"','"desconto em folha"','"revisão de contrato"','"quero revisar"','"meu empréstimo"','"minha parcela"','"não consigo pagar"','"não aguento mais pagar"','"quanto estou pagando de juros"','"CET" "empréstimo"'];
-  const sources=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','jusbrasil.com.br','x.com','threads.net','linkedin.com','medium.com'];
+  const firstPerson=[
+    '"eu"','"meu"','"minha"','"fiz"','"peguei"','"contratei"','"estou pagando"','"não consigo pagar"','"nao consigo pagar"',
+    '"preciso de ajuda"','"alguém pode me ajudar"','"alguem pode me ajudar"','"como reduzir"','"como contestar"',
+    '"quero reclamar"','"quero revisar"','"me cobraram"','"descontaram"','"desconto em folha"','"minha dívida"','"minha divida"'
+  ];
+  const pain=[
+    '"juros abusivos"','"juros altos"','"reduzir parcela"','"parcela alta"','"cobrança indevida"','"cobranca indevida"',
+    '"revisão de contrato"','"revisao de contrato"','"revisão"','"revisao"','"reduzir parcela"','"meu empréstimo"',
+    '"meu emprestimo"','"minha parcela"','"não consigo pagar"','"nao consigo pagar"','"desconto em folha"','"portabilidade"',
+    '"CET"','"taxa muito alta"','"parcela aumentou"','"contrato bancário"','"contrato bancario"'
+  ];
+  const community=['reddit.com','reclameaqui.com.br','youtube.com','facebook.com','instagram.com','tiktok.com','quora.com','x.com','threads.net','consumidor.gov.br','jusbrasil.com.br'];
+  const extra=[
+    '"procuro advogado"','"preciso de advogado"','"advogado" "juros abusivos"','"ação revisional"','"acao revisional"',
+    '"revisão de empréstimo"','"revisao de emprestimo"','"revisão de financiamento"','"revisao de financiamento"',
+    '"empréstimo consignado" "meu"','"emprestimo consignado" "meu"','"consignado" "minha parcela"'
+  ];
+  const sourcesByRound=community.slice((round*3)%community.length).concat(community.slice(0,(round*3)%community.length));
   const qs:string[]=[];
-  for(const p of pain){qs.push(`"${base}" "${cityQ}" ${p}`);qs.push(`"${cityQ}" ${p} "${base}"`);qs.push(`"${base}" "${cityQ}" ${p} contato`);qs.push(`"${base}" "${cityQ}" ${p} whatsapp`);}
-  for(const site of sources){for(const p of pain.slice(0,9)){qs.push(`site:${site} "${base}" ${p} "${cityQ}"`);qs.push(`site:${site} "${base}" ${p} (whatsapp OR telefone OR contato OR email)`);}}
-  // Public profile/contact discovery. These don't target private areas; they ask search indexes for public contact pages.
-  qs.push(`site:instagram.com "${base}" "${cityQ}" (whatsapp OR contato OR telefone OR email)`);
-  qs.push(`site:facebook.com "${base}" "${cityQ}" (whatsapp OR contato OR telefone OR email)`);
-  qs.push(`site:youtube.com "${base}" "${cityQ}" (contato OR whatsapp OR telefone OR email)`);
-  qs.push(`site:linkedin.com "${base}" "${cityQ}" (whatsapp OR telefone OR email)`);
-  qs.push(`site:x.com "${base}" "${cityQ}" (whatsapp OR telefone OR email)`);
-  qs.push(`site:threads.net "${base}" "${cityQ}" (whatsapp OR telefone OR email)`);
-  qs.push(`"${cityQ}" "${base}" "whatsapp" "instagram"`);
-  qs.push(`"${cityQ}" "${base}" "telefone" "instagram"`);
-  return [...new Set(qs)];
+  // Prefer first-person, problem-specific queries over generic product searches.
+  for(const fp of firstPerson){
+    const p=pain[(round+qs.length)%pain.length];
+    qs.push(`"${base}" "${cityQ}" ${fp} ${p}`);
+    qs.push(`"${cityQ}" ${fp} ${p} "${base}"`);
+  }
+  for(let i=0;i<extra.length;i++){
+    const x=extra[(round+i)%extra.length];
+    qs.push(`"${cityQ}" ${x} "${base}"`);
+  }
+  for(const site of sourcesByRound){
+    const p=pain[(round*5 + sourcesByRound.indexOf(site))%pain.length];
+    const fp=firstPerson[(round*7 + sourcesByRound.indexOf(site))%firstPerson.length];
+    qs.push(`site:${site} "${base}" "${cityQ}" ${p} ${fp}`);
+    qs.push(`site:${site} "${base}" "${cityQ}" "preciso" "ajuda"`);
+    qs.push(`site:${site} "${base}" "${cityQ}" "meu" "minha" ${p}`);
+  }
+  // Public contact is only sought after a person/profile is found; these queries are discovery queries, not hidden-data queries.
+  qs.push(`"${cityQ}" "${base}" "instagram.com" "whatsapp"`);
+  qs.push(`"${cityQ}" "${base}" "facebook.com" "whatsapp"`);
+  qs.push(`"${cityQ}" "${base}" "youtube.com" "contato"`);
+  // Round-based variation prevents cycling the same exact query set.
+  qs.push(`"${cityQ}" "${base}" "experiência" "juros" "${round+1}"`);
+  qs.push(`"${cityQ}" "${base}" "problema" "parcela" "${round+1}"`);
+  return uniq(qs.map(qKey));
 }
 async function searchDuck(q:string){
   const r=await fetchText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`); if(!r.text)return[]; const out:LeadResult[]=[];
@@ -126,38 +159,71 @@ function shuffle<T>(arr:T[]){const a=[...arr];for(let i=a.length-1;i>0;i--){cons
 export default async function handler(req:VercelRequest,res:VercelResponse){
   if(req.method!=='POST')return res.status(405).json({error:'POST only'});
   const product=String(req.body?.query||'').trim(), city=String(req.body?.city||'').trim(); if(!product||!city)return res.status(400).json({error:'Produto/interesse e cidade são obrigatórios.'});
-  const start=Date.now(); const cursor=Number(req.body?.cursor)||0; const exclude=new Set<string>(Array.isArray(req.body?.excludeUrls)?req.body.excludeUrls.map((x:string)=>normUrl(String(x))):[]);
+  const start=Date.now(); const cursor=Math.max(0,Number(req.body?.cursor)||0); const round=Math.max(0,Number(req.body?.round)||0);
+  const excludeUrls=new Set<string>(Array.isArray(req.body?.excludeUrls)?req.body.excludeUrls.map((x:string)=>normUrl(String(x))).slice(-MAX_URL_HISTORY):[]);
+  const excludeCandidates=new Set<string>(Array.isArray(req.body?.excludeCandidates)?req.body.excludeCandidates.map((x:string)=>String(x).toLowerCase()).slice(-MAX_URL_HISTORY):[]);
+  const excludeQueries=new Set<string>(Array.isArray(req.body?.excludeQueries)?req.body.excludeQueries.map((x:string)=>qKey(String(x))).slice(-MAX_QUERY_HISTORY):[]);
   let analyzed=Number(req.body?.analyzed)||0, eligible=Number(req.body?.eligible)||0, rejected=Number(req.body?.rejected)||0;
   res.statusCode=200;res.setHeader('Content-Type','application/x-ndjson; charset=utf-8');res.setHeader('Cache-Control','no-cache, no-transform');res.setHeader('X-Accel-Buffering','no');
   try{
     emit(res,{type:'log',source:'Motor contínuo',message:`Nova rodada contínua para ${product} em ${city}. Pessoas físicas somente; resultados de empresas são descartados.`});
     emit(res,{type:'log',source:'Elegibilidade',message:'Lead = pessoa física confirmada + nome + telefone/celular/WhatsApp público. E-mail sozinho não basta.'});
-    const qs=searchQueries(product,city); const batchSize=6; const selected=[]; for(let i=0;i<batchSize;i++){selected.push(qs[(cursor+i)%qs.length]);}
-    let nextCursor=(cursor+batchSize)%qs.length;
+    const qs=searchQueries(product,city,round);
+    const available=qs.filter(q=>!excludeQueries.has(qKey(q)));
+    // Never intentionally run the same query twice in the same continuous session.
+    const selected=available.slice(0,3);
+    let nextCursor=cursor+selected.length;
+    if(!selected.length){
+      emit(res,{type:'log',source:'Diversificação',message:'As consultas conhecidas desta combinação já foram usadas; a próxima rodada muda frases, comunidades e intenção para evitar repetição.'});
+      nextCursor=0;
+    }
     const seenBatch=new Set<string>();
     for(const q of shuffle(selected)){
       if(!withinBudget(start)||analyzed>=Number(req.body?.analyzed||0)+MAX_SEED_RESULTS)break;
-      emit(res,{type:'log',source:'Busca pública',message:`Consulta contínua: ${q}`});
-      const [a,b,c]=await Promise.all([searchDuck(q),searchBing(q),searchGoogleNews(q)]); const rows=[...a,...b,...c]; emit(res,{type:'log',source:'Fontes públicas',message:`${rows.length} resultados brutos; filtrando pessoas físicas.`});
-      for(const raw of rows){
+      emit(res,{type:'log',source:'Busca pública',message:`Consulta ${round+1}: ${q}`});
+      const engines:[string,()=>Promise<LeadResult[]>][]=[
+        ['DuckDuckGo',()=>searchDuck(q)],
+        ['Bing RSS',()=>searchBing(q)],
+        ['Google News',()=>searchGoogleNews(q)]
+      ];
+      let queryHadCandidate=false;
+      for(const [engine,fn] of engines){
         if(!withinBudget(start))break;
-        const k=normUrl(raw.url); if(!k||exclude.has(k)||seenBatch.has(k))continue; seenBatch.add(k); if(!relevant(`${raw.title} ${raw.snippet}`))continue;
-        analyzed+=1;
-        if(likelyOrganization(`${raw.title} ${raw.snippet}`,raw.url)){rejected+=1;emit(res,{type:'rejected',source:'Filtro pessoa física',message:`Descartado: ${raw.title.slice(0,110)} — resultado empresarial, institucional ou genérico.`});continue;}
-        const base={...raw,intent:product,score:intentScore(`${raw.title} ${raw.snippet}`,product)};
-        emit(res,{type:'log',source:'Investigação profunda',message:`Analisando ${host(raw.url)||'fonte pública'}${publicSocialHost(raw.url)?' · fonte social/comunidade pública':''}.`});
-        const enriched=await enrich(base,start);
-        if(enriched.isPerson&&enriched.personName&&enriched.phone&&validPhone(enriched.phone)){
-          eligible+=1;exclude.add(k);emit(res,{type:'lead',source:'Lead contatável',result:enriched,total:analyzed,eligible,rejected});
-        } else {
-          rejected+=1;emit(res,{type:'rejected',source:'Filtro pessoa física',message:`Descartado: ${raw.title.slice(0,110)} — não confirmou pessoa física com nome + telefone público.`});
+        const rows=await fn();
+        if(rows.length)queryHadCandidate=true;
+        emit(res,{type:'log',source:engine,message:`${rows.length} resultados retornados; removendo duplicados e conteúdo empresarial.`});
+        for(const raw of rows){
+          if(!withinBudget(start))break;
+          const k=normUrl(raw.url); const ck=candidateKey(raw);
+          if(!k||excludeUrls.has(k)||seenBatch.has(k)||excludeCandidates.has(ck))continue;
+          seenBatch.add(k); excludeCandidates.add(ck);
+          if(!relevant(`${raw.title} ${raw.snippet}`))continue;
+          analyzed+=1;
+          if(likelyOrganization(`${raw.title} ${raw.snippet}`,raw.url)){rejected+=1;emit(res,{type:'rejected',source:'Filtro pessoa física',message:`Descartado: ${raw.title.slice(0,110)} — conteúdo empresarial, institucional ou genérico.`,result:raw,candidateKey:ck});continue;}
+          const base={...raw,intent:product,score:intentScore(`${raw.title} ${raw.snippet}`,product)};
+          const personish=looksPerson(`${raw.title} ${raw.snippet}`);
+          if(!personish && !publicSocialHost(raw.url)){
+            rejected+=1;emit(res,{type:'rejected',source:'Filtro intenção',message:`Descartado: ${raw.title.slice(0,110)} — não há sinais suficientes de relato pessoal.`,result:raw,candidateKey:ck});continue;
+          }
+          emit(res,{type:'log',source:'Investigação profunda',message:`Analisando ${host(raw.url)||'fonte pública'}${publicSocialHost(raw.url)?' · perfil/comunidade pública':''}.`});
+          const enriched=await enrich(base,start);
+          if(enriched.isPerson&&enriched.personName&&enriched.phone&&validPhone(enriched.phone)){
+            eligible+=1;excludeUrls.add(k);emit(res,{type:'lead',source:'Lead contatável',result:enriched,total:analyzed,eligible,rejected});
+          } else {
+            rejected+=1;emit(res,{type:'rejected',source:'Filtro de contatos',message:`Descartado: ${raw.title.slice(0,110)} — não confirmou pessoa física + telefone público. Nenhum dado privado foi procurado.`,result:raw,candidateKey:ck});
+          }
+          emit(res,{type:'stats',total:analyzed,eligible,rejected,nextCursor,queryKey:qKey(q),candidateKey:ck});
+          if(!withinBudget(start))break;
         }
-        emit(res,{type:'stats',total:analyzed,eligible,rejected,nextCursor});
-        if(!withinBudget(start))break;
+        await delay(SEARCH_DELAY_MS);
       }
       if(!withinBudget(start))break;
+      excludeQueries.add(qKey(q));
+      emit(res,{type:'stats',total:analyzed,eligible,rejected,nextCursor,queryKey:qKey(q)});
+      emit(res,{type:'log',source:'Ritmo de pesquisa',message:`Consulta finalizada${queryHadCandidate?' com candidatos novos':' sem candidatos novos'}. Próxima consulta será diferente; o motor não reutiliza esta consulta nesta sessão.`});
+      await delay(SEARCH_DELAY_MS);
     }
-    emit(res,{type:'done',total:analyzed,eligible,rejected,message:`Lote concluído. ${eligible} lead(s) contatável(is) acumulado(s). O cliente pode iniciar imediatamente o próximo lote sem parar.`,nextCursor});
+    emit(res,{type:'done',total:analyzed,eligible,rejected,message:`Lote concluído. ${eligible} lead(s) contatável(is) acumulado(s). Consultas novas e diversificadas serão usadas no próximo lote.`,nextCursor});
     res.end();
   }catch(e){emit(res,{type:'error',source:'Motor contínuo',message:e instanceof Error?e.message:'Falha na prospecção.'});res.end();}
 }
