@@ -1,1 +1,6 @@
-{"functions":{"api/public-scan.ts":{"maxDuration":10}}}
+{
+  "functions": {
+    "api/public-scan.ts": { "maxDuration": 15 },
+    "api/lead-discover.ts": { "maxDuration": 15 }
+  }
+}
