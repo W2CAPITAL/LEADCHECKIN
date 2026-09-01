@@ -1,126 +1,22 @@
--- Leadcheck — schema completo para projeto Supabase novo.
--- Execute este arquivo inteiro no SQL Editor.
-
+-- Leadcheck — banco completo para projeto Supabase novo.
+-- Execute no SQL Editor. Novos leads exigem nome + telefone/celular/WhatsApp ou e-mail.
 create extension if not exists pgcrypto;
-
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  email text,
-  full_name text,
-  company text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
-begin
-  new.updated_at = now();
-  return new;
-end $$;
-
-drop trigger if exists profiles_updated_at on public.profiles;
-create trigger profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
-
-create or replace function public.handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
-begin
-  insert into public.profiles (id,email)
-  values (new.id,new.email)
-  on conflict (id) do update set email=excluded.email;
-  return new;
-end $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
-
-create table if not exists public.leads (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id) on delete cascade,
-  name text not null,
-  dedupe_key text not null default gen_random_uuid()::text,
-  phone text,
-  email text,
-  company text,
-  source text not null default 'manual',
-  source_url text,
-  source_detail text,
-  status text not null default 'novo' check (status in ('novo','contatado','qualificado','proposta','convertido','perdido')),
-  score integer not null default 0 check (score between 0 and 100),
-  interest text,
-  notes text,
-  consent_at timestamptz,
-  consent_source text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists leads_owner_created_idx on public.leads(owner_id, created_at desc);
-create index if not exists leads_owner_status_idx on public.leads(owner_id, status);
-create index if not exists leads_owner_email_idx on public.leads(owner_id, lower(email));
-create index if not exists leads_owner_phone_idx on public.leads(owner_id, phone);
-create unique index if not exists leads_owner_dedupe_idx on public.leads(owner_id, dedupe_key);
-
-drop trigger if exists leads_updated_at on public.leads;
-create trigger leads_updated_at before update on public.leads for each row execute function public.set_updated_at();
-create or replace function public.calculate_lead_score()
-returns trigger language plpgsql as $$
-begin
-  new.score := least(100,
-    (case when nullif(trim(coalesce(new.phone,'')),'') is not null then 25 else 0 end) +
-    (case when nullif(trim(coalesce(new.email,'')),'') is not null then 20 else 0 end) +
-    (case when nullif(trim(coalesce(new.company,'')),'') is not null then 20 else 0 end) +
-    (case when new.consent_at is not null then 20 else 0 end) +
-    (case when new.source = 'site_publico' then 10 else 0 end) +
-    (case when nullif(trim(coalesce(new.interest,'')),'') is not null then 5 else 0 end)
-  );
-  return new;
-end $$;
-
-drop trigger if exists leads_score on public.leads;
-create trigger leads_score before insert or update on public.leads for each row execute function public.calculate_lead_score();
-
-create table if not exists public.activities (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id) on delete cascade,
-  lead_id uuid not null references public.leads(id) on delete cascade,
-  type text not null default 'nota' check (type in ('nota','ligacao','whatsapp','email','reuniao')),
-  body text not null,
-  created_at timestamptz not null default now()
-);
-create index if not exists activities_owner_idx on public.activities(owner_id, created_at desc);
-create index if not exists activities_lead_idx on public.activities(lead_id, created_at desc);
-
-alter table public.profiles enable row level security;
-alter table public.leads enable row level security;
-alter table public.activities enable row level security;
-
-drop policy if exists profiles_select_own on public.profiles;
-drop policy if exists profiles_insert_own on public.profiles;
-drop policy if exists profiles_update_own on public.profiles;
-create policy profiles_select_own on public.profiles for select using (auth.uid() = id);
-create policy profiles_insert_own on public.profiles for insert with check (auth.uid() = id);
-create policy profiles_update_own on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
-
-drop policy if exists leads_select_own on public.leads;
-drop policy if exists leads_insert_own on public.leads;
-drop policy if exists leads_update_own on public.leads;
-drop policy if exists leads_delete_own on public.leads;
-create policy leads_select_own on public.leads for select using (auth.uid() = owner_id);
-create policy leads_insert_own on public.leads for insert with check (auth.uid() = owner_id);
-create policy leads_update_own on public.leads for update using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-create policy leads_delete_own on public.leads for delete using (auth.uid() = owner_id);
-
-drop policy if exists activities_select_own on public.activities;
-drop policy if exists activities_insert_own on public.activities;
-drop policy if exists activities_update_own on public.activities;
-drop policy if exists activities_delete_own on public.activities;
-create policy activities_select_own on public.activities for select using (auth.uid() = owner_id);
-create policy activities_insert_own on public.activities for insert with check (auth.uid() = owner_id and exists (select 1 from public.leads l where l.id = lead_id and l.owner_id = auth.uid()));
-create policy activities_update_own on public.activities for update using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-create policy activities_delete_own on public.activities for delete using (auth.uid() = owner_id);
-
--- Garante que o perfil inicial exista para usuários já criados antes deste SQL.
-insert into public.profiles (id,email)
-select id,email from auth.users
-on conflict (id) do update set email=excluded.email;
+create table if not exists public.profiles(id uuid primary key references auth.users(id) on delete cascade,email text,full_name text,company text,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create or replace function public.set_updated_at() returns trigger language plpgsql as $$ begin new.updated_at=now(); return new; end $$;
+drop trigger if exists profiles_updated_at on public.profiles; create trigger profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
+create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path=public as $$ begin insert into public.profiles(id,email) values(new.id,new.email) on conflict(id) do update set email=excluded.email; return new; end $$;
+drop trigger if exists on_auth_user_created on auth.users; create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
+create table if not exists public.leads(id uuid primary key default gen_random_uuid(),owner_id uuid not null references auth.users(id) on delete cascade,name text not null,dedupe_key text not null default gen_random_uuid()::text,phone text,email text,company text,source text not null default 'manual',source_url text,source_detail text,status text not null default 'novo' check(status in('novo','contatado','qualificado','proposta','convertido','perdido')),score integer not null default 0 check(score between 0 and 100),interest text,notes text,consent_at timestamptz,consent_source text,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create index if not exists leads_owner_created_idx on public.leads(owner_id,created_at desc); create index if not exists leads_owner_status_idx on public.leads(owner_id,status); create index if not exists leads_owner_email_idx on public.leads(owner_id,lower(email)); create index if not exists leads_owner_phone_idx on public.leads(owner_id,phone); create unique index if not exists leads_owner_dedupe_idx on public.leads(owner_id,dedupe_key);
+drop trigger if exists leads_updated_at on public.leads; create trigger leads_updated_at before update on public.leads for each row execute function public.set_updated_at();
+create or replace function public.enforce_contactable_lead() returns trigger language plpgsql as $$ begin if nullif(trim(new.name),'') is null then raise exception 'Nome é obrigatório.'; end if; if nullif(regexp_replace(coalesce(new.phone,''),'[^0-9]','','g'),'') is null and nullif(trim(coalesce(new.email,'')),'') is null then raise exception 'Lead precisa ter telefone/celular/WhatsApp ou e-mail.'; end if; return new; end $$;
+drop trigger if exists leads_contact_required on public.leads; create trigger leads_contact_required before insert or update on public.leads for each row execute function public.enforce_contactable_lead();
+create or replace function public.calculate_lead_score() returns trigger language plpgsql as $$ begin new.score:=least(100,(case when nullif(regexp_replace(coalesce(new.phone,''),'[^0-9]','','g'),'') is not null then 35 else 0 end)+(case when nullif(trim(coalesce(new.email,'')),'') is not null then 20 else 0 end)+(case when nullif(trim(coalesce(new.name,'')),'') is not null then 20 else 0 end)+(case when nullif(trim(coalesce(new.company,'')),'') is not null then 5 else 0 end)+(case when new.consent_at is not null then 15 else 0 end)+(case when nullif(trim(coalesce(new.interest,'')),'') is not null then 5 else 0 end)); return new; end $$;
+drop trigger if exists leads_score on public.leads; create trigger leads_score before insert or update on public.leads for each row execute function public.calculate_lead_score();
+create table if not exists public.activities(id uuid primary key default gen_random_uuid(),owner_id uuid not null references auth.users(id) on delete cascade,lead_id uuid not null references public.leads(id) on delete cascade,type text not null default 'nota' check(type in('nota','ligacao','whatsapp','email','reuniao')),body text not null,created_at timestamptz not null default now());
+create index if not exists activities_owner_idx on public.activities(owner_id,created_at desc); create index if not exists activities_lead_idx on public.activities(lead_id,created_at desc);
+alter table public.profiles enable row level security; alter table public.leads enable row level security; alter table public.activities enable row level security;
+drop policy if exists profiles_select_own on public.profiles; drop policy if exists profiles_insert_own on public.profiles; drop policy if exists profiles_update_own on public.profiles; create policy profiles_select_own on public.profiles for select using(auth.uid()=id); create policy profiles_insert_own on public.profiles for insert with check(auth.uid()=id); create policy profiles_update_own on public.profiles for update using(auth.uid()=id) with check(auth.uid()=id);
+drop policy if exists leads_select_own on public.leads; drop policy if exists leads_insert_own on public.leads; drop policy if exists leads_update_own on public.leads; drop policy if exists leads_delete_own on public.leads; create policy leads_select_own on public.leads for select using(auth.uid()=owner_id); create policy leads_insert_own on public.leads for insert with check(auth.uid()=owner_id); create policy leads_update_own on public.leads for update using(auth.uid()=owner_id) with check(auth.uid()=owner_id); create policy leads_delete_own on public.leads for delete using(auth.uid()=owner_id);
+drop policy if exists activities_select_own on public.activities; drop policy if exists activities_insert_own on public.activities; drop policy if exists activities_update_own on public.activities; drop policy if exists activities_delete_own on public.activities; create policy activities_select_own on public.activities for select using(auth.uid()=owner_id); create policy activities_insert_own on public.activities for insert with check(auth.uid()=owner_id and exists(select 1 from public.leads l where l.id=lead_id and l.owner_id=auth.uid())); create policy activities_update_own on public.activities for update using(auth.uid()=owner_id) with check(auth.uid()=owner_id); create policy activities_delete_own on public.activities for delete using(auth.uid()=owner_id);
+insert into public.profiles(id,email) select id,email from auth.users on conflict(id) do update set email=excluded.email;

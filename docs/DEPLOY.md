@@ -1,26 +1,14 @@
-# Deploy limpo
+# Deploy do Leadcheck
 
-## GitHub
+1. Supabase: crie um projeto, abra SQL Editor e execute `supabase/schema.sql` inteiro.
+2. Supabase Auth: habilite Email/Password. Durante testes, deixe confirmação de e-mail conforme sua necessidade.
+3. Vercel: configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os valores públicos do projeto.
+4. Não exponha `SERVICE_ROLE`, `SECRET` ou `JWT_SECRET` em `VITE_*`.
+5. GitHub: coloque o conteúdo desta pasta na raiz do novo repositório e importe o repositório na Vercel.
+6. Build command: `npm run build`.
 
-Coloque o conteúdo desta pasta na raiz do repositório novo `LEADCHECKIN`.
+## Regra de lead
+O CRM não aceita novo/atualizado lead sem nome e sem telefone/celular/WhatsApp ou e-mail. O banco reforça a regra por trigger, então ela não depende apenas da interface.
 
-## Supabase
-
-Execute `supabase/schema.sql` integralmente no SQL Editor. Depois confira Authentication > Providers > Email.
-
-## Vercel
-
-Variáveis obrigatórias:
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-Build: `npm run build`
-
-## Cloudflare
-
-Use o Cloudflare para DNS/domínio. O aplicativo continua hospedado na Vercel; não misture o Worker de ingestão antigo com esta versão.
-
-## Primeiro acesso
-
-Abra o domínio, clique em `Criar uma conta`, confirme o e-mail se o projeto exigir confirmação e entre. O primeiro lead criado já será persistido no Supabase.
+## Captação
+O Lead Generator trabalha com sinais e contatos publicamente acessíveis. Não acessa áreas privadas nem tenta obter CPF, score, conta bancária ou listas privadas. Um resultado de comunidade só vira lead quando houver identidade pública e canal de contato acessível na fonte.
