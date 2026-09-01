@@ -1,45 +1,39 @@
-# Leadcheck — CRM + Lead Generator
+# Leadcheck
 
-Projeto standalone para um deploy limpo no GitHub + Vercel, usando Supabase como banco e autenticação.
+CRM funcional + Lead Generator gratuito, preparado para Vercel + Supabase.
 
-## 1. Supabase
-1. Crie um projeto gratuito no Supabase.
-2. Abra **SQL Editor**.
-3. Cole todo o conteúdo de `supabase/schema.sql` e execute.
-4. Em **Project Settings → API**, copie Project URL e anon/public key.
+## O que funciona
 
-## 2. Vercel
-No projeto Vercel, configure:
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+- Cadastro e login por Supabase Auth.
+- CRM persistente em PostgreSQL/Supabase.
+- CRUD real de leads: criar, editar, alterar status e excluir.
+- Busca e filtros no CRM.
+- Score automático.
+- Histórico de interações por lead: nota, ligação, WhatsApp, e-mail e reunião.
+- Importação CSV com upsert por proprietário + chave de deduplicação.
+- Dashboard com métricas reais do banco.
+- Scanner de páginas públicas para contatos comerciais publicados pela empresa.
+- Origem e URL preservadas no lead.
+- RLS para isolamento entre usuários.
 
-Depois faça deploy.
+## Gratuito e sem n8n
 
-## 3. Local
-```bash
-npm install
-npm run dev
-```
+A base não depende de n8n, WhatsApp API paga, CNPJ pago ou serviço de enriquecimento obrigatório. A captação pode começar com formulário/site, scanner de páginas públicas e CSV.
 
-## O que já existe
-- login/cadastro via Supabase Auth
-- CRM multiusuário com isolamento por `owner_id` + RLS
-- dashboard
-- pipeline de status
-- busca e filtro
-- score automático
-- Lead Generator
-- scanner de página pública em `/api/public-scan`
-- origem/proveniência do lead
-- banco PostgreSQL completo
-- auditoria básica por atividades preparada
-- Vercel pronto
+## Supabase
 
-## Scanner
-O scanner trabalha com páginas públicas fornecidas pelo operador. Não coleta credenciais, não acessa áreas privadas e não tenta burlar mecanismos de login.
+1. Crie um projeto Supabase.
+2. Abra SQL Editor.
+3. Execute o arquivo `supabase/schema.sql` inteiro.
+4. Em Authentication, use Email/Password.
+5. No Vercel configure `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
 
-## WhatsApp
-É opcional. O projeto não depende de WhatsApp API nem de fornecedor pago.
+O `schema.sql` cria perfis, leads, atividades, índices, triggers e políticas RLS. Também cria automaticamente o perfil quando um usuário é cadastrado.
 
-## Google Sheets
-A integração pode ser adicionada depois como conector, sem transformar Sheets no banco principal.
+## Vercel
+
+Build: `npm run build`
+
+O domínio pode continuar sendo administrado pelo Cloudflare via DNS apontando para a Vercel. Não é necessário colocar segredo do Supabase no frontend: use somente a URL e a chave pública/anon nas variáveis `VITE_`.
+
+Nunca exponha `service_role`, `secret` ou `jwt_secret` como `VITE_*`.

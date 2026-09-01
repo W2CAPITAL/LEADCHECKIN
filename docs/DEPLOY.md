@@ -1,13 +1,26 @@
-# Deploy zero-to-production
+# Deploy limpo
 
-### GitHub
-Crie um repositório novo e copie a raiz deste projeto. Não publique `.env` com segredos.
+## GitHub
 
-### Supabase
-Execute `supabase/schema.sql` no SQL Editor. O RLS garante que um usuário autenticado só veja seus próprios leads.
+Coloque o conteúdo desta pasta na raiz do repositório novo `LEADCHECKIN`.
 
-### Vercel
-Importe o repositório. Build: `npm run build`. Framework: Vite. As variáveis `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` são públicas por design; a segurança real do acesso aos dados é feita pelas políticas RLS.
+## Supabase
 
-### Domínio Cloudflare
-No Cloudflare DNS, aponte o domínio para o destino fornecido pela Vercel. Depois adicione o domínio em Vercel → Settings → Domains.
+Execute `supabase/schema.sql` integralmente no SQL Editor. Depois confira Authentication > Providers > Email.
+
+## Vercel
+
+Variáveis obrigatórias:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+Build: `npm run build`
+
+## Cloudflare
+
+Use o Cloudflare para DNS/domínio. O aplicativo continua hospedado na Vercel; não misture o Worker de ingestão antigo com esta versão.
+
+## Primeiro acesso
+
+Abra o domínio, clique em `Criar uma conta`, confirme o e-mail se o projeto exigir confirmação e entre. O primeiro lead criado já será persistido no Supabase.
