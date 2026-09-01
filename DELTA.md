@@ -1,24 +1,32 @@
-# Leadcheck — Delta de correções e melhorias
+# LEADCHECKIN — DELTA 2 — Lead Generator amplo
 
-Este ZIP NÃO é o projeto completo. É somente o delta para aplicar sobre a build `LEADCHECKIN-CRM-FREE-N8N-FIXED` já publicada.
+Este pacote é **somente delta**. Extraia por cima do repositório Leadcheck atual.
 
-## Arquivos alterados/adicionados
+## O que mudou
 
-- `src/App.tsx` — Lead Generator passa a ter busca de empresas reais por segmento + cidade, salvamento individual/em lote no Supabase e tratamento melhor do scanner bloqueado.
-- `src/styles.css` — interface da busca/prospecção.
-- `api/public-scan.ts` — 403/4xx não quebram a experiência; resposta orienta para a busca pública e o scanner extrai contatos comerciais de páginas acessíveis.
-- `api/lead-discover.ts` — nova função server-side gratuita para descobrir empresas B2B publicamente encontráveis e, quando possível, seus contatos comerciais publicados.
-- `vercel.json` — limite de execução das duas funções aumentado para 15s.
+- Removido o seletor de quantidade de leads da interface.
+- A busca agora usa várias formulações de pesquisa e várias páginas por formulação, deduplica resultados e devolve tudo que conseguiu encontrar nessa rodada.
+- Não há mais `limit: 30` no endpoint.
+- Google Places (opcional) foi integrado como segunda fonte oficial. Se `GOOGLE_PLACES_API_KEY` existir, o backend consulta até as páginas retornadas pelo próprio Places para cada busca.
+- Sites encontrados são visitados para extrair somente e-mail/telefone comercial que a própria página publicou.
+- O scanner direto também segue links de Contato/Fale Conosco/Atendimento/Sobre dentro do mesmo domínio, em vez de ler somente a home.
+- Quando um site publica um CNPJ, o backend pode consultar a BrasilAPI para enriquecer os dados cadastrais da empresa.
+- Não foi adicionado n8n.
+- Não há coleta de CPF, compradores de veículos ou WhatsApp privado.
+
+## Variáveis opcionais
+
+`GOOGLE_PLACES_API_KEY` — opcional. Sem ela, o motor continua funcionando com busca pública + sites + BrasilAPI CNPJ.
+
+O Google Places exige faturamento habilitado, mas atualmente possui cotas mensais gratuitas por SKU; Text Search Essentials tem cota gratuita de 10.000 eventos/mês. Não é tratado como dependência obrigatória do Leadcheck.
 
 ## Deploy
 
-Copie estes arquivos por cima da raiz do repositório existente e faça commit/push. Não substitua o restante do projeto.
+1. Extraia o conteúdo na raiz do repositório atual.
+2. Commit/push.
+3. Vercel redeploy.
+4. Se quiser a segunda fonte, adicione `GOOGLE_PLACES_API_KEY` nas variáveis da Vercel.
 
-O novo Lead Generator aceita, por exemplo:
+## Importante sobre “sem limite”
 
-- `escritórios de advocacia` + `São Paulo`
-- `imobiliárias` + `Campinas`
-- `despachantes` + `Santos`
-- `lojas de veículos` + `Guarulhos`
-
-A busca retorna empresas reais encontradas em páginas públicas. O sistema não inventa leads e não usa contatos privados de consumidores. Quando o site da empresa permite acesso, tenta extrair e-mail/telefone comercial publicado e mantém a URL de origem.
+O Leadcheck não impõe mais um número máximo artificial de leads ao usuário. Nenhuma API pública, porém, promete resultados infinitos: cada fonte tem suas próprias regras, paginação, disponibilidade e cobertura. O motor usa múltiplas consultas/fontes para ampliar a cobertura em vez de cortar arbitrariamente em 10/20/30 resultados.
