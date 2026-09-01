@@ -1,10 +1,24 @@
-# Leadcheck V11 — Deep Contact Discovery
+# LEADCHECK V12 — Captacao continua de leads contataveis
 
-O Lead Generator agora pesquisa em camadas e só promove um resultado quando confirma **nome público + telefone/celular/WhatsApp público**. E-mail pode ser armazenado como contato complementar, mas não substitui o telefone para elegibilidade.
+Esta build preserva o CRM/Supabase e corrige o motor de prospeccao para operar em lotes curtos e continuos.
 
-A execução combina busca pública, páginas e perfis públicos, hubs públicos de contato (quando vinculados publicamente), além de uma segunda busca pelo nome/handle para tentar confirmar o telefone. Ela para no primeiro lead contatável confirmado ou ao esgotar a janela de execução da função; não usa loop infinito no servidor.
+## Comportamento
 
-Não acessa áreas privadas, não burla login e não tenta revelar CPF, dados bancários, score de crédito ou contatos ocultos.
+- O usuario clica em **Buscar leads contataveis**.
+- A API executa um lote curto para evitar timeout da Vercel e faz streaming dos eventos.
+- Cada pessoa fisica elegivel aparece imediatamente na interface.
+- Ao terminar o lote, o navegador inicia automaticamente o proximo lote.
+- A pesquisa so para quando o usuario clica em **Parar captacao** (ou quando ocorre um erro de rede que precisa ser corrigido).
+- A cada lote o cursor muda as consultas e o navegador envia URLs ja vistas para reduzir repeticao.
 
-## Vercel
-`api/lead-discover.ts` usa streaming NDJSON e `maxDuration` de 60 segundos. O processamento é deliberadamente progressivo para exibir logs e o primeiro lead assim que houver confirmação.
+## Regra de elegibilidade
+
+Um lead de prospeccao precisa ser uma **pessoa fisica identificada publicamente** e ter **telefone/celular/WhatsApp publicamente acessivel**. E-mail sozinho nao basta.
+
+Resultados de bancos, financeiras, fintechs, portais, plataformas, paginas institucionais e sites empresariais sao descartados.
+
+O motor pode inspecionar uma pagina/perfil publico e seguir um canal de contato que esteja explicitamente vinculado a essa pagina, mas nao tenta entrar em areas privadas nem cruzar identidades entre sites para descobrir telefone oculto.
+
+## Vantagem da arquitetura
+
+A Vercel nao precisa manter uma unica funcao viva indefinidamente. A API trabalha em pequenos lotes e o cliente mantem a captação ativa. Isso permite continuar por muito mais tempo sem um timeout unico de servidor.
