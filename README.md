@@ -1,43 +1,55 @@
-# LEADCHECKIN — Build gratuita do Lead Generator
+# LEADCHECKIN — Build V6 — Prospecção por intenção financeira
 
 Delta para aplicar sobre o repositório atual `W2CAPITAL/LEADCHECKIN`.
 
-## Correções e melhorias
+## Objetivo comercial
 
-- Remove completamente Google Places e `GOOGLE_PLACES_API_KEY` da interface e do fluxo de descoberta.
-- Lead Generator usa somente fontes públicas gratuitas: DuckDuckGo HTML, Bing HTML e os próprios sites empresariais acessíveis.
-- Várias formulações de busca por segmento/cidade.
-- Várias páginas por formulação.
-- Deduplicação por URL.
-- Visita sites empresariais encontrados.
-- Procura e-mail, telefone e CNPJ publicados.
-- Procura páginas internas de contato, atendimento, fale conosco, sobre e empresa.
-- Mantém empresas mesmo quando o contato não é encontrado, evitando falso zero por falha parcial de extração.
-- Corrige o narrowing do cliente Supabase em `saveAllDiscovered` e nas operações dependentes de sessão.
-- Remove a mensagem de Google Places do CRM.
+O Lead Generator deixa de ser um buscador de empresas genéricas. O objetivo é encontrar **oportunidades públicas de pessoas que demonstraram intenção ou problema relacionado a produtos financeiros** que podem ter aderência a uma assessoria financeira/revisional.
 
-## Arquivos
+Produtos:
 
-Substituir no repositório:
+- Financiamento de veículo
+- Financiamento imobiliário
+- Empréstimo
+- Dívida / renegociação
+- Revisão contratual
+
+## Como funciona
+
+1. O usuário escolhe produto + cidade.
+2. O backend cria várias buscas de intenção, por exemplo: juros abusivos, revisão, parcela alta, renegociação, dificuldade de pagamento e pedido de ajuda.
+3. Consulta fontes públicas gratuitas sem API key.
+4. Deduplica resultados.
+5. Classifica a intenção de 0 a 100 e ordena maior intenção primeiro.
+6. Tenta acessar a página pública e páginas internas relevantes.
+7. Mantém e-mail/telefone somente quando publicados na página pública acessível.
+8. Salva no CRM Supabase com a intenção, produto, score e URL de origem.
+
+## Gratuito
+
+Não usa Google Places, Google Maps API, n8n, API paga, lista privada de consumidores ou base de CPF.
+
+Fontes sem chave:
+
+- DuckDuckGo HTML — busca pública.
+- Google News RSS — índice público complementar.
+- Páginas públicas acessíveis encontradas nos resultados.
+
+As fontes são infraestrutura pública e podem responder com 403/429/CAPTCHA ou cobertura incompleta. O sistema não tenta contornar bloqueios.
+
+## Aplicação
+
+Substitua:
 
 - `src/App.tsx`
 - `api/lead-discover.ts`
 
-Depois:
+Adicione:
+
+- `docs/LEAD-GENERATOR-INTENCAO.md`
+
+Depois execute no repositório completo:
 
 ```bash
 npm run build
-git add .
-git commit -m "feat: free lead discovery and remove Google Places"
-git push
 ```
-
-## Gratuito
-
-Não há chave Google Places, n8n, API paga ou serviço de enriquecimento obrigatório.
-
-A execução tem limites técnicos de segurança do próprio servidor para não transformar uma função serverless em processo infinito. Isso não é um limite de leads na interface/CRM; a busca usa múltiplas consultas e páginas e deduplica o resultado.
-
-## Observação
-
-Fontes públicas podem responder com bloqueio, CAPTCHA, 403/429 ou resultados diferentes. O Leadcheck trata isso como falha parcial e continua com as outras fontes e sites acessíveis.
