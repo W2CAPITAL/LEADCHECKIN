@@ -1,7 +1,8 @@
 import {useEffect,useMemo,useRef,useState,type ChangeEvent,type Dispatch,type FormEvent,type SetStateAction} from 'react';
 import {Activity,CheckCircle2,ExternalLink,LayoutDashboard,LogOut,Pencil,Plus,RefreshCw,ScanSearch,Search,Trash2,Users,X,Download,Target,Phone,Mail,UserRound,ShieldCheck,AlertTriangle} from 'lucide-react';
 import type {Lead,LeadStatus} from './types';
-import {initSupabase,supabase} from './supabase';\nimport {buildRevisionalTriage} from './revisional-skill';
+import {initSupabase,supabase} from './supabase';
+import {buildRevisionalTriage} from './revisional-skill';
 
 const statuses:LeadStatus[]=['novo','contatado','qualificado','proposta','convertido','perdido'];
 const statusLabel:Record<LeadStatus,string>={novo:'Novo',contatado:'Contatado',qualificado:'Qualificado',proposta:'Proposta',convertido:'Convertido',perdido:'Perdido'};
