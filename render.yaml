@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: leadcheckin-zero
+    runtime: node
+    plan: free
+    region: ohio
+    branch: main
+    autoDeploy: true
+    buildCommand: npm install --no-fund --no-audit && npm run build
+    startCommand: npm start
